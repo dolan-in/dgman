@@ -1,0 +1,1 @@
+*Dgman* is a schema manager for [Dgraph](https://dgraph.io/), which manages Dgraph schema and indexes from Golang tags in struct definitions.
