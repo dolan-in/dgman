@@ -14,5 +14,5 @@ before_script:
 script:
   - go test
 after_script:
-  - kill -2 $ZERO_PID
   - kill -2 $SERVER_PID
+  - kill -2 $ZERO_PID
