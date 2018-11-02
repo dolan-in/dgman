@@ -4,6 +4,8 @@ git:
 sudo: required
 install:
   - curl https://get.dgraph.io -sSf | bash
+  - curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
+  - dep ensure
 before_script:
   - dgraph zero &
   - ZERO_PID=$!
@@ -12,5 +14,5 @@ before_script:
 script:
   - go test
 after_script:
-  - kill -9 $ZERO_PID
-  - kill -9 $SERVER_PID
+  - kill -2 $ZERO_PID
+  - kill -2 $SERVER_PID
