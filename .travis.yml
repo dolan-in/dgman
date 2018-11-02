@@ -1,0 +1,16 @@
+language: go
+git: 
+  depth: 50
+sudo: required
+install:
+  - curl https://get.dgraph.io -sSf | bash
+before_script:
+  - dgraph zero &
+  - ZERO_PID=$!
+  - dgraph server --lru_mb 1024 &
+  - SERVER_PID=$!
+script:
+  - go test
+after_script:
+  - kill -9 $ZERO_PID
+  - kill -9 $SERVER_PID
