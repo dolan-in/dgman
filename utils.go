@@ -2,7 +2,6 @@ package dgman
 
 import (
 	"context"
-	"log"
 	"regexp"
 	"strings"
 
@@ -24,7 +23,7 @@ func toSnakeCase(str string) string {
 func newDgraphClient() *dgo.Dgraph {
 	d, err := grpc.Dial("localhost:9080", grpc.WithInsecure())
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
 	return dgo.NewDgraphClient(
@@ -42,6 +41,6 @@ func dropAll(client ...*dgo.Dgraph) {
 
 	err := c.Alter(context.Background(), &api.Operation{DropAll: true})
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 }
