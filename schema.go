@@ -39,10 +39,20 @@ type Schema struct {
 }
 
 func (s Schema) String() string {
+	schema := fmt.Sprintf("%s: %s ", s.Predicate, s.Type)
 	if s.Index {
-		return fmt.Sprintf("%s: %s @index(%s) .", s.Predicate, s.Type, strings.Join(s.Tokenizer, ","))
+		schema += fmt.Sprintf("@index(%s) ", strings.Join(s.Tokenizer, ","))
 	}
-	return fmt.Sprintf("%s: %s .", s.Predicate, s.Type)
+	if s.Upsert {
+		schema += "@upsert "
+	}
+	if s.Count {
+		schema += "@count "
+	}
+	if s.Reverse {
+		schema += "@reverse "
+	}
+	return schema + "."
 }
 
 type SchemaMap map[string]*Schema
@@ -55,15 +65,25 @@ func (s SchemaMap) String() string {
 	return schemaDef
 }
 
-func marshalSchema(models ...interface{}) SchemaMap {
+func marshalSchema(initSchemaMap SchemaMap, models ...interface{}) SchemaMap {
 	// schema map maps predicates to its index/schema definition
 	// to make sure it is unique
 	schemaMap := make(SchemaMap)
+	if initSchemaMap != nil {
+		schemaMap = initSchemaMap
+	}
+
 	for _, model := range models {
 		current, err := reflectType(model)
 		if err != nil {
 			log.Println(err)
 			continue
+		}
+
+		nodeType := toSnakeCase(current.Name())
+		schemaMap[nodeType] = &Schema{
+			Predicate: nodeType,
+			Type:      "string",
 		}
 
 		numFields := current.NumField()
@@ -72,42 +92,69 @@ func marshalSchema(models ...interface{}) SchemaMap {
 
 			jsonTags := strings.Split(field.Tag.Get("json"), ",")
 			name := jsonTags[0]
-			// check if field already exists
-			if schema, ok := schemaMap[name]; !ok {
-				// uid may need different parser
-				if name != "uid" {
-					s := &Schema{
-						Predicate: name,
-						Type:      field.Type.Name(),
-					}
 
-					dgraphTag := field.Tag.Get(tagName)
+			schema, _ := schemaMap[name]
+			// uid may need different parser
+			if name != "uid" {
+				s, err := parseDgraphTag(name, &field)
+				if err != nil {
+					log.Println("unmarshal dgraph tag: ", err)
+					continue
+				}
 
-					if dgraphTag != "" {
-						dgraphProps, err := parseStructTag(dgraphTag)
-						if err != nil {
-							log.Println("unmarshal dgraph tag: ", err)
-							continue
-						}
+				// edge
+				if s.Type == "uid" {
+					// traverse node
+					edgePtr := reflect.New(field.Type.Elem())
+					marshalSchema(schemaMap, edgePtr.Elem().Interface())
+				}
 
-						s.Index = dgraphProps.Index != ""
-						s.List = dgraphProps.List
-						s.Upsert = dgraphProps.Upsert
-						s.Count = dgraphProps.Count
-
-						if s.Index {
-							s.Tokenizer = strings.Split(dgraphProps.Index, ",")
-						}
-					}
-
+				if schema != nil && schema.String() != s.String() {
+					log.Printf("conflicting schema %s, already defined as \"%s\", trying to define \"%s\"\n", name, schema.String(), s.String())
+				} else {
 					schemaMap[name] = s
 				}
-			} else {
-				log.Printf("duplicate schema %s, already defined as \"%s\n\"", name, schema)
 			}
 		}
 	}
 	return schemaMap
+}
+
+func parseDgraphTag(predicate string, field *reflect.StructField) (*Schema, error) {
+	schema := &Schema{
+		Predicate: predicate,
+		Type:      field.Type.Name(),
+	}
+
+	if field.Type.Kind() == reflect.Slice {
+		sliceType := field.Type.Elem()
+		if sliceType.Kind() == reflect.Struct {
+			// assume is edge
+			schema.Type = "uid"
+		} else {
+			schema.Type = fmt.Sprintf("[%s]", sliceType.Name())
+		}
+	}
+
+	dgraphTag := field.Tag.Get(tagName)
+
+	if dgraphTag != "" {
+		dgraphProps, err := parseStructTag(dgraphTag)
+		if err != nil {
+			return nil, err
+		}
+
+		schema.Index = dgraphProps.Index != ""
+		schema.List = dgraphProps.List
+		schema.Upsert = dgraphProps.Upsert
+		schema.Count = dgraphProps.Count
+		schema.Reverse = dgraphProps.Reverse
+
+		if schema.Index {
+			schema.Tokenizer = strings.Split(dgraphProps.Index, ",")
+		}
+	}
+	return schema, nil
 }
 
 func reflectType(model interface{}) (reflect.Type, error) {
@@ -170,7 +217,7 @@ func fetchExistingSchema(httpUri string) ([]Schema, error) {
 // Currently fetching schema with gRPC not working, workaround: use HTTP.
 // https://github.com/dgraph-io/dgo/issues/23
 func CreateSchema(c *dgo.Dgraph, httpUri string, models ...interface{}) ([]*Schema, error) {
-	definedSchema := marshalSchema(models...)
+	definedSchema := marshalSchema(nil, models...)
 	existingSchema, err := fetchExistingSchema(httpUri)
 	if err != nil {
 		return nil, err
@@ -180,7 +227,7 @@ func CreateSchema(c *dgo.Dgraph, httpUri string, models ...interface{}) ([]*Sche
 	for _, schema := range existingSchema {
 		if s, exists := definedSchema[schema.Predicate]; exists {
 			if s.String() != schema.String() {
-				log.Printf("conflicting schema %s, already defined as \"%s\", trying to install \"%s\"\n", schema.Predicate, schema.String(), s.String())
+				log.Printf("existing schema %s, already defined as \"%s\", trying to install \"%s\"\n", schema.Predicate, schema.String(), s.String())
 				conflicted = append(conflicted, s)
 
 				delete(definedSchema, schema.Predicate)
