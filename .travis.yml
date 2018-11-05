@@ -1,18 +1,21 @@
 language: go
-git: 
+git:
   depth: 50
 sudo: required
 install:
-  - curl https://get.dgraph.io -sSf | bash
-  - curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
-  - dep ensure
+- curl https://get.dgraph.io -sSf | bash
+- curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
+- dep ensure
+- go get golang.org/x/tools/cmd/cover
+- go get github.com/mattn/goveralls
 before_script:
-  - dgraph zero &
-  - ZERO_PID=$!
-  - dgraph server --lru_mb 1024 &
-  - SERVER_PID=$!
+- dgraph zero &
+- ZERO_PID=$!
+- dgraph server --lru_mb 1024 &
+- SERVER_PID=$!
 script:
-  - go test
+- go test -v -covermode=count -coverprofile=coverage.out
+- "$HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci"
 after_script:
-  - kill -2 $SERVER_PID
-  - kill -2 $ZERO_PID
+- kill -2 $SERVER_PID
+- kill -2 $ZERO_PID
