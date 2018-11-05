@@ -2,9 +2,6 @@ language: go
 git:
   depth: 50
 sudo: required
-env:
-  global:
-    secure: Gqqc9o6ss4M6Cn9w+tQ7f0hXuP3w/W1MdIkh7p8Oi13zDjbHg/VTojBvhbqsgdisShrnMXDzJ29UqVCG0MPclkTn+K2f35N4pozG1mVzH8NAdqBQQ3NtS5WJGH5lRnnW1sklgcyll5A9GcGoHXZXgr6xiKt80xaseq/l6+oQzsefTS4IPGeP/o+alUUASatd7rAmUwucpqDaer3b0n8XKPCqg4PxKcl4wcokdwbvXtrMmQEf+NIsAQXVwupV5SXEdvpFmIST6vuAS0ORnZOeuw1DfKqaqH06s/Pu2dz0IGHWhgZK7tMVdq1eQianT4dNRi3si+UDdOPJnHIMzaW24q2CeYW6Wae6xnqXnAhLLBX62aM7SCkwT/VQoKYdt59Ebn4NtU5k+bo2rY59EqdnvWp0Mh1hLWzGHBr4Yd9BDzSgZ0tYYbResdyqO1IeSHpev1vTWh/svp1Kkr8ehnxX3/QTdDUbI2igmLiPJl9DOaBsExu/abmEnalUrwANc7wH4R7NQrqpOHyPLbrXBcF9AjNzTUox3MCID7rOmDPpN1wkcJ8xrEbYQaoYuhGaOn2fWIyBffF8qWGYZNslvYHLnD+x5TJVgo3vD3x+52WjiJGLQCdxzZ4kPBOBmLLIqCpIdrSDs7GH/T37TVCaEpj3Ta4vkTeRyRp9SrnimkvFKMM=
 install:
 - curl https://get.dgraph.io -sSf | bash
 - curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
@@ -18,7 +15,7 @@ before_script:
 - SERVER_PID=$!
 script:
 - go test -v -covermode=count -coverprofile=coverage.out
-- "$HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci -repotoken $COVERALLS_TOKEN"
+- "$HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci"
 after_script:
 - kill -2 $SERVER_PID
 - kill -2 $ZERO_PID
