@@ -18,8 +18,7 @@ before_script:
 - SERVER_PID=$!
 script:
 - go test -v -covermode=count -coverprofile=coverage.out
-- "$HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci -repotoken
-  $COVERALLS_TOKEN"
+- "$HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci -repotoken $COVERALLS_TOKEN"
 after_script:
 - kill -2 $SERVER_PID
 - kill -2 $ZERO_PID
