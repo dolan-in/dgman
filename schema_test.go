@@ -48,19 +48,18 @@ func TestMarshalSchema(t *testing.T) {
 
 func TestCreateSchema(t *testing.T) {
 	c := newDgraphClient()
+	defer dropAll(c)
 	// make sure empty first, so no conflicts
-	conflict, err := CreateSchema(c, "localhost:8080", &User{})
+	conflict, err := CreateSchema(c, &User{})
 	if err != nil {
 		t.Error(err)
 	}
 	assert.Empty(t, conflict)
 
-	conflict, err = CreateSchema(c, "localhost:8080", &NewUser{})
+	conflict, err = CreateSchema(c, &NewUser{})
 	if err != nil {
 		t.Error(err)
 	}
 	// should return conflicts for username and email
 	assert.Len(t, conflict, 2)
-
-	dropAll(c)
 }
