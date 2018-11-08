@@ -11,7 +11,7 @@ install:
 before_script:
 - dgraph zero &
 - ZERO_PID=$!
-- dgraph server --lru_mb 1024 &
+- dgraph alpha --lru_mb 1024 &
 - SERVER_PID=$!
 script:
 - go test -v -covermode=count -coverprofile=coverage.out
