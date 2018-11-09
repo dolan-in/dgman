@@ -22,6 +22,7 @@ type rawSchema struct {
 	Count      bool
 	List       bool
 	Upsert     bool
+	Type       string
 }
 
 type Schema struct {
@@ -146,6 +147,10 @@ func parseDgraphTag(predicate string, field *reflect.StructField) (*Schema, erro
 		schema.Upsert = dgraphProps.Upsert
 		schema.Count = dgraphProps.Count
 		schema.Reverse = dgraphProps.Reverse
+
+		if dgraphProps.Type != "" {
+			schema.Type = dgraphProps.Type
+		}
 
 		if schema.Index {
 			schema.Tokenizer = strings.Split(dgraphProps.Index, ",")
