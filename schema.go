@@ -1,12 +1,9 @@
 package dgman
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
 	"reflect"
 	"strings"
 
@@ -179,7 +176,7 @@ func parseStructTag(tag string) (*rawSchema, error) {
 	return &schema, nil
 }
 
-func fetchExistingSchema(httpUri string) ([]Schema, error) {
+func fetchExistingSchema(c *dgo.Dgraph) ([]*Schema, error) {
 	schemaQuery := `
 		schema {
 			type
@@ -193,32 +190,39 @@ func fetchExistingSchema(httpUri string) ([]Schema, error) {
 		}
 	`
 
-	r := bytes.NewReader([]byte(schemaQuery))
-	resp, err := http.Post(fmt.Sprintf("http://%s/query", httpUri), "application/json", r)
+	tx := c.NewTxn()
+
+	resp, err := tx.Query(context.Background(), schemaQuery)
 	if err != nil {
 		return nil, err
 	}
 
-	var queryResult struct {
-		Data struct {
-			Schema []Schema
+	schemas := make([]*Schema, len(resp.Schema))
+	for index, schema := range resp.Schema {
+		// temporary use own schema defition
+		// TODO: use dgo builtin *api.SchemaNode
+		schemas[index] = &Schema{
+			Predicate: schema.Predicate,
+			Type:      schema.Type,
+			Index:     schema.Index,
+			Reverse:   schema.Reverse,
+			Tokenizer: schema.Tokenizer,
+			List:      schema.List,
+			Count:     schema.Count,
+			Upsert:    schema.Upsert,
 		}
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&queryResult); err != nil {
-		return nil, err
-	}
-
-	return queryResult.Data.Schema, nil
+	return schemas, nil
 }
 
 // CreateSchema generate indexes and schema from struct models,
 // returns conflicted schemas, useful for testing.
 // Currently fetching schema with gRPC not working, workaround: use HTTP.
 // https://github.com/dgraph-io/dgo/issues/23
-func CreateSchema(c *dgo.Dgraph, httpUri string, models ...interface{}) ([]*Schema, error) {
+func CreateSchema(c *dgo.Dgraph, models ...interface{}) ([]*Schema, error) {
 	definedSchema := marshalSchema(nil, models...)
-	existingSchema, err := fetchExistingSchema(httpUri)
+	existingSchema, err := fetchExistingSchema(c)
 	if err != nil {
 		return nil, err
 	}
