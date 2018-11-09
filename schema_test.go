@@ -12,6 +12,7 @@ type User struct {
 	Username string   `json:"username,omitempty" dgraph:"index=hash"`
 	Email    string   `json:"email,omitempty" dgraph:"index=hash upsert"`
 	Password string   `json:"password,omitempty"`
+	Mobiles  []string `json:"mobiles,omitempty"`
 	Schools  []School `json:"schools,omitempty" dgraph:"count reverse"`
 }
 
@@ -29,18 +30,20 @@ type NewUser struct {
 
 func TestMarshalSchema(t *testing.T) {
 	schema := marshalSchema(nil, User{})
-	assert.Len(t, schema, 7)
+	assert.Len(t, schema, 8)
 	assert.Contains(t, schema, "user")
 	assert.Contains(t, schema, "school")
 	assert.Contains(t, schema, "username")
 	assert.Contains(t, schema, "email")
 	assert.Contains(t, schema, "password")
 	assert.Contains(t, schema, "name")
+	assert.Contains(t, schema, "mobiles")
 	assert.Contains(t, schema, "schools")
 	assert.Equal(t, "username: string @index(hash) .", schema["username"].String())
 	assert.Equal(t, "email: string @index(hash) @upsert .", schema["email"].String())
 	assert.Equal(t, "password: string .", schema["password"].String())
 	assert.Equal(t, "name: string @index(term) .", schema["name"].String())
+	assert.Equal(t, "mobiles: [string] .", schema["mobiles"].String())
 	assert.Equal(t, "schools: uid @count @reverse .", schema["schools"].String())
 	assert.Equal(t, "school: string .", schema["school"].String())
 	assert.Equal(t, "user: string .", schema["user"].String())
