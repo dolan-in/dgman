@@ -134,6 +134,13 @@ func parseDgraphTag(predicate string, field *reflect.StructField) (*Schema, erro
 		}
 	}
 
+	// check if custom struct type specifies a scalar type
+	// from CustomScalar interface
+	ptr := reflect.New(field.Type)
+	if scalar, ok := ptr.Elem().Interface().(CustomScalar); ok {
+		schema.Type = scalar.ScalarType()
+	}
+
 	dgraphTag := field.Tag.Get(tagName)
 
 	if dgraphTag != "" {

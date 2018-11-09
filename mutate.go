@@ -16,11 +16,6 @@ type MutateOptions struct {
 	DisableInject bool
 }
 
-// Node is an interface for passing node type
-type Node interface {
-	NodeType() string
-}
-
 // Mutate is a shortcut to create mutations from data to be marshalled into JSON
 func Mutate(ctx context.Context, tx *dgo.Txn, data interface{}, options ...MutateOptions) (string, error) {
 	opt := MutateOptions{}

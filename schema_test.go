@@ -6,19 +6,32 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+type EnumType int
+
+type GeoLoc struct {
+	Type  string    `json:"type"`
+	Coord []float64 `json:"coordinates"`
+}
+
+func (e EnumType) ScalarType() string {
+	return "int"
+}
+
 type User struct {
 	UID      string   `json:"uid,omitempty"`
 	Name     string   `json:"name,omitempty" dgraph:"index=term"`
 	Username string   `json:"username,omitempty" dgraph:"index=hash"`
 	Email    string   `json:"email,omitempty" dgraph:"index=hash upsert"`
 	Password string   `json:"password,omitempty"`
+	Status   EnumType `json:"status,omitempty"`
 	Mobiles  []string `json:"mobiles,omitempty"`
 	Schools  []School `json:"schools,omitempty" dgraph:"count reverse"`
 }
 
 type School struct {
-	UID  string `json:"uid,omitempty"`
-	Name string `json:"name,omitempty"`
+	UID      string `json:"uid,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Location GeoLoc `json:"location,omitempty" dgraph:"type=geo"` // test passing type
 }
 
 type NewUser struct {
@@ -30,7 +43,7 @@ type NewUser struct {
 
 func TestMarshalSchema(t *testing.T) {
 	schema := marshalSchema(nil, User{})
-	assert.Len(t, schema, 8)
+	assert.Len(t, schema, 10)
 	assert.Contains(t, schema, "user")
 	assert.Contains(t, schema, "school")
 	assert.Contains(t, schema, "username")
@@ -38,6 +51,8 @@ func TestMarshalSchema(t *testing.T) {
 	assert.Contains(t, schema, "password")
 	assert.Contains(t, schema, "name")
 	assert.Contains(t, schema, "mobiles")
+	assert.Contains(t, schema, "status")
+	assert.Contains(t, schema, "location")
 	assert.Contains(t, schema, "schools")
 	assert.Equal(t, "username: string @index(hash) .", schema["username"].String())
 	assert.Equal(t, "email: string @index(hash) @upsert .", schema["email"].String())
@@ -46,7 +61,9 @@ func TestMarshalSchema(t *testing.T) {
 	assert.Equal(t, "mobiles: [string] .", schema["mobiles"].String())
 	assert.Equal(t, "schools: uid @count @reverse .", schema["schools"].String())
 	assert.Equal(t, "school: string .", schema["school"].String())
+	assert.Equal(t, "status: int .", schema["status"].String())
 	assert.Equal(t, "user: string .", schema["user"].String())
+	assert.Equal(t, "location: geo .", schema["location"].String())
 }
 
 func TestCreateSchema(t *testing.T) {
