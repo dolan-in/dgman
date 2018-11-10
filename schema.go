@@ -92,8 +92,8 @@ func marshalSchema(initSchemaMap SchemaMap, models ...interface{}) SchemaMap {
 			name := jsonTags[0]
 
 			schema, _ := schemaMap[name]
-			// uid may need different parser
-			if name != "uid" {
+			// don't parse struct composition fields (empty name), don't need to parse uid
+			if name != "" && name != "uid" {
 				s, err := parseDgraphTag(name, &field)
 				if err != nil {
 					log.Println("unmarshal dgraph tag: ", err)
