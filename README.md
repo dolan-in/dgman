@@ -1,6 +1,7 @@
 
 [![Build Status](https://travis-ci.com/dolan-in/dgman.svg?branch=master)](https://travis-ci.com/dolan-in/dgman)
 [![Coverage Status](https://coveralls.io/repos/github/dolan-in/dgman/badge.svg?branch=master)](https://coveralls.io/github/dolan-in/dgman?branch=master)
+[![GoDoc](https://godoc.org/github.com/dolan-in/dgman?status.svg)](https://godoc.org/github.com/dolan-in/dgman)
 
 ***Dgman*** is a schema manager for [Dgraph](https://dgraph.io/), which manages Dgraph schema and indexes from Golang tags in struct definitions.
 

@@ -30,6 +30,12 @@ type User struct {
 	Created  time.Time  `json:"created,omitempty"`
 	Mobiles  []string   `json:"mobiles,omitempty"`
 	Schools  []School   `json:"schools,omitempty" dgraph:"count reverse"`
+	*Anonymous
+}
+
+type Anonymous struct {
+	Field1 string `json:"field_1,omitempty"`
+	Field2 string `json:"field_2,omitempty"`
 }
 
 type School struct {
