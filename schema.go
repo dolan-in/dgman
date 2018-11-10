@@ -53,6 +53,7 @@ func (s Schema) String() string {
 	return schema + "."
 }
 
+// SchemaMap maps the underlying schema defined for a predicate
 type SchemaMap map[string]*Schema
 
 func (s SchemaMap) String() string {
@@ -61,6 +62,14 @@ func (s SchemaMap) String() string {
 		schemaDef += schema.String() + "\n"
 	}
 	return schemaDef
+}
+
+func (s SchemaMap) Len() int {
+	l := 0
+	for range s {
+		l++
+	}
+	return l
 }
 
 func marshalSchema(initSchemaMap SchemaMap, models ...interface{}) SchemaMap {
@@ -118,38 +127,48 @@ func marshalSchema(initSchemaMap SchemaMap, models ...interface{}) SchemaMap {
 	return schemaMap
 }
 
-func parseDgraphTag(predicate string, field *reflect.StructField) (*Schema, error) {
-	fieldType := field.Type
+// TODO: handle go custom types, e.g: type Enum uint
+func getSchemaType(fieldType reflect.Type) string {
 	if fieldType.Kind() == reflect.Ptr {
 		fieldType = fieldType.Elem()
 	}
-
-	schema := &Schema{
-		Predicate: predicate,
-		Type:      fieldType.Name(),
-	}
+	schemaType := fieldType.Name()
 
 	switch fieldType.Kind() {
 	case reflect.Slice:
 		sliceType := fieldType.Elem()
 		if sliceType.Kind() == reflect.Struct {
 			// assume is edge
-			schema.Type = "uid"
+			schemaType = "uid"
 		} else {
-			schema.Type = fmt.Sprintf("[%s]", sliceType.Name())
+			schemaType = fmt.Sprintf("[%s]", sliceType.Name())
 		}
 	case reflect.Struct:
 		switch fieldType.PkgPath() {
 		case "time":
-			schema.Type = "dateTime"
+			schemaType = "dateTime"
 		}
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		schemaType = "int"
+	case reflect.Float32, reflect.Float64:
+		schemaType = "float"
 	}
 
-	// check if custom struct type specifies a scalar type
+	// check if custom struct/type specifies a scalar type
 	// from CustomScalar interface
-	ptr := reflect.New(field.Type)
+	ptr := reflect.New(fieldType)
 	if scalar, ok := ptr.Elem().Interface().(CustomScalar); ok {
-		schema.Type = scalar.ScalarType()
+		schemaType = scalar.ScalarType()
+	}
+
+	return schemaType
+}
+
+func parseDgraphTag(predicate string, field *reflect.StructField) (*Schema, error) {
+	schema := &Schema{
+		Predicate: predicate,
+		Type:      getSchemaType(field.Type),
 	}
 
 	dgraphTag := field.Tag.Get(tagName)
@@ -240,30 +259,28 @@ func fetchExistingSchema(c *dgo.Dgraph) ([]*Schema, error) {
 }
 
 // CreateSchema generate indexes and schema from struct models,
-// returns conflicted schemas, useful for testing.
-// Currently fetching schema with gRPC not working, workaround: use HTTP.
-// https://github.com/dgraph-io/dgo/issues/23
-func CreateSchema(c *dgo.Dgraph, models ...interface{}) ([]*Schema, error) {
+// returns the created schemap.
+func CreateSchema(c *dgo.Dgraph, models ...interface{}) (*SchemaMap, error) {
 	definedSchema := marshalSchema(nil, models...)
 	existingSchema, err := fetchExistingSchema(c)
 	if err != nil {
 		return nil, err
 	}
 
-	var conflicted []*Schema
 	for _, schema := range existingSchema {
 		if s, exists := definedSchema[schema.Predicate]; exists {
 			if s.String() != schema.String() {
 				log.Printf("existing schema %s, already defined as \"%s\", trying to install \"%s\"\n", schema.Predicate, schema.String(), s.String())
-				conflicted = append(conflicted, s)
-
-				delete(definedSchema, schema.Predicate)
 			}
+
+			delete(definedSchema, schema.Predicate)
 		}
 	}
 
-	if err = c.Alter(context.Background(), &api.Operation{Schema: definedSchema.String()}); err != nil {
-		return nil, err
+	if len(definedSchema) > 0 {
+		if err = c.Alter(context.Background(), &api.Operation{Schema: definedSchema.String()}); err != nil {
+			return nil, err
+		}
 	}
-	return conflicted, err
+	return &definedSchema, err
 }

@@ -85,17 +85,18 @@ func TestMarshalSchema(t *testing.T) {
 func TestCreateSchema(t *testing.T) {
 	c := newDgraphClient()
 	defer dropAll(c)
-	// make sure empty first, so no conflicts
-	conflict, err := CreateSchema(c, &User{})
-	if err != nil {
-		t.Error(err)
-	}
-	assert.Empty(t, conflict)
 
-	conflict, err = CreateSchema(c, &NewUser{})
+	firstSchema, err := CreateSchema(c, &User{})
 	if err != nil {
 		t.Error(err)
 	}
-	// should return conflicts for username and email
-	assert.Len(t, conflict, 2)
+	assert.Equal(t, firstSchema.Len(), 13)
+
+	secondSchema, err := CreateSchema(c, &NewUser{})
+	if err != nil {
+		t.Error(err)
+	}
+	// conflicts should be ignored
+	// only one schema, the node type
+	assert.Equal(t, secondSchema.Len(), 1)
 }
