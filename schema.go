@@ -119,18 +119,29 @@ func marshalSchema(initSchemaMap SchemaMap, models ...interface{}) SchemaMap {
 }
 
 func parseDgraphTag(predicate string, field *reflect.StructField) (*Schema, error) {
-	schema := &Schema{
-		Predicate: predicate,
-		Type:      field.Type.Name(),
+	fieldType := field.Type
+	if fieldType.Kind() == reflect.Ptr {
+		fieldType = fieldType.Elem()
 	}
 
-	if field.Type.Kind() == reflect.Slice {
-		sliceType := field.Type.Elem()
+	schema := &Schema{
+		Predicate: predicate,
+		Type:      fieldType.Name(),
+	}
+
+	switch fieldType.Kind() {
+	case reflect.Slice:
+		sliceType := fieldType.Elem()
 		if sliceType.Kind() == reflect.Struct {
 			// assume is edge
 			schema.Type = "uid"
 		} else {
 			schema.Type = fmt.Sprintf("[%s]", sliceType.Name())
+		}
+	case reflect.Struct:
+		switch fieldType.PkgPath() {
+		case "time":
+			schema.Type = "dateTime"
 		}
 	}
 

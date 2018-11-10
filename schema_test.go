@@ -2,6 +2,7 @@ package dgman
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -18,14 +19,17 @@ func (e EnumType) ScalarType() string {
 }
 
 type User struct {
-	UID      string   `json:"uid,omitempty"`
-	Name     string   `json:"name,omitempty" dgraph:"index=term"`
-	Username string   `json:"username,omitempty" dgraph:"index=hash"`
-	Email    string   `json:"email,omitempty" dgraph:"index=hash upsert"`
-	Password string   `json:"password,omitempty"`
-	Status   EnumType `json:"status,omitempty"`
-	Mobiles  []string `json:"mobiles,omitempty"`
-	Schools  []School `json:"schools,omitempty" dgraph:"count reverse"`
+	UID      string     `json:"uid,omitempty"`
+	Name     string     `json:"name,omitempty" dgraph:"index=term"`
+	Username string     `json:"username,omitempty" dgraph:"index=hash"`
+	Email    string     `json:"email,omitempty" dgraph:"index=hash upsert"`
+	Password string     `json:"password,omitempty"`
+	Height   *int       `json:"height,omitempty"`
+	Dob      *time.Time `json:"dob,omitempty"`
+	Status   EnumType   `json:"status,omitempty"`
+	Created  time.Time  `json:"created,omitempty"`
+	Mobiles  []string   `json:"mobiles,omitempty"`
+	Schools  []School   `json:"schools,omitempty" dgraph:"count reverse"`
 }
 
 type School struct {
@@ -43,15 +47,18 @@ type NewUser struct {
 
 func TestMarshalSchema(t *testing.T) {
 	schema := marshalSchema(nil, User{})
-	assert.Len(t, schema, 10)
+	assert.Len(t, schema, 13)
 	assert.Contains(t, schema, "user")
 	assert.Contains(t, schema, "school")
 	assert.Contains(t, schema, "username")
 	assert.Contains(t, schema, "email")
 	assert.Contains(t, schema, "password")
 	assert.Contains(t, schema, "name")
+	assert.Contains(t, schema, "height")
 	assert.Contains(t, schema, "mobiles")
 	assert.Contains(t, schema, "status")
+	assert.Contains(t, schema, "dob")
+	assert.Contains(t, schema, "created")
 	assert.Contains(t, schema, "location")
 	assert.Contains(t, schema, "schools")
 	assert.Equal(t, "username: string @index(hash) .", schema["username"].String())
@@ -62,6 +69,9 @@ func TestMarshalSchema(t *testing.T) {
 	assert.Equal(t, "schools: uid @count @reverse .", schema["schools"].String())
 	assert.Equal(t, "school: string .", schema["school"].String())
 	assert.Equal(t, "status: int .", schema["status"].String())
+	assert.Equal(t, "height: int .", schema["height"].String())
+	assert.Equal(t, "dob: dateTime .", schema["dob"].String())
+	assert.Equal(t, "created: dateTime .", schema["created"].String())
 	assert.Equal(t, "user: string .", schema["user"].String())
 	assert.Equal(t, "location: geo .", schema["location"].String())
 }
