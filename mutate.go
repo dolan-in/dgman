@@ -14,6 +14,7 @@ import (
 // MutateOptions specifies options for mutating
 type MutateOptions struct {
 	DisableInject bool
+	CommitNow     bool
 }
 
 // Mutate is a shortcut to create mutations from data to be marshalled into JSON
@@ -30,7 +31,8 @@ func Mutate(ctx context.Context, tx *dgo.Txn, data interface{}, options ...Mutat
 	}
 
 	assigned, err := tx.Mutate(ctx, &api.Mutation{
-		SetJson: out,
+		SetJson:   out,
+		CommitNow: opt.CommitNow,
 	})
 	if err != nil {
 		log.Println("mutate", err)
@@ -46,9 +48,6 @@ func Mutate(ctx context.Context, tx *dgo.Txn, data interface{}, options ...Mutat
 }
 
 func marshalAndInjectType(data interface{}, disableInject bool) ([]byte, error) {
-	nodeType := getNodeType(data)
-	snakeCase := toSnakeCase(nodeType)
-
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		log.Println("marshal", err)
@@ -56,6 +55,9 @@ func marshalAndInjectType(data interface{}, disableInject bool) ([]byte, error) 
 	}
 
 	if !disableInject {
+		nodeType := getNodeType(data)
+		snakeCase := toSnakeCase(nodeType)
+
 		switch jsonData[0] {
 		case 123: // if JSON object, starts with "{" (123 in ASCII)
 			result := fmt.Sprintf("{\"%s\":\"\",%s", snakeCase, string(jsonData[1:]))
