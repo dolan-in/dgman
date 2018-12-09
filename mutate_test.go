@@ -120,3 +120,15 @@ func TestAddNodeType(t *testing.T) {
 		t.Errorf("expected %s got %s", expected, jsonData)
 	}
 }
+
+func TestGetNodeType(t *testing.T) {
+	nodeTypeStruct := getNodeType(TestNode{})
+	nodeTypePtr := getNodeType(&TestNode{})
+	nodeTypeSlice := getNodeType([]TestNode{})
+	nodeTypeSlicePtr := getNodeType([]*TestNode{})
+
+	assert.Equal(t, nodeTypeStruct, "test_node")
+	assert.Equal(t, nodeTypePtr, "test_node")
+	assert.Equal(t, nodeTypeSlice, "test_node")
+	assert.Equal(t, nodeTypeSlicePtr, "test_node")
+}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"reflect"
+	"strings"
 
 	"github.com/dgraph-io/dgo"
 	"github.com/dgraph-io/dgo/protos/api"
@@ -17,7 +18,8 @@ type MutateOptions struct {
 	CommitNow     bool
 }
 
-// Mutate is a shortcut to create mutations from data to be marshalled into JSON
+// Mutate is a shortcut to create mutations from data to be marshalled into JSON,
+// it will inject the node type from the Struct name converted to snake_case
 func Mutate(ctx context.Context, tx *dgo.Txn, data interface{}, options ...MutateOptions) (string, error) {
 	opt := MutateOptions{}
 	if len(options) > 0 {
@@ -39,12 +41,43 @@ func Mutate(ctx context.Context, tx *dgo.Txn, data interface{}, options ...Mutat
 		return "", err
 	}
 
+	// TODO: handle bulk mutations
 	uid, ok := assigned.Uids["blank-0"]
 	if !ok {
 		// if update, no uid's assigned
 		return "", nil
 	}
 	return uid, nil
+}
+
+func CreateUnique(ctx context.Context, tx *dgo.Txn, uniqueField string, model interface{}, opt ...MutateOptions) (uid string, err error) {
+	// get the value of the unique field
+	v := reflect.TypeOf(model)
+	numFields := v.NumField()
+
+	var uniqueFieldValue reflect.Value
+	for i := 0; i < numFields; i++ {
+		field := v.Field(i)
+
+		jsonTags := strings.Split(field.Tag.Get("json"), ",")
+		name := jsonTags[0]
+
+		if name == uniqueField {
+			uniqueFieldValue = reflect.ValueOf(model).Field(i)
+			break
+		}
+	}
+
+	filter := fmt.Sprintf(`eq(%s, %v)`, uniqueField, uniqueFieldValue)
+	if err := GetByFilter(ctx, tx, filter, model); err != nil {
+		return "", err
+	}
+
+	if model != nil {
+		return "", fmt.Errorf("field %s with value %v already exists", uniqueField, uniqueFieldValue)
+	}
+
+	return Mutate(ctx, tx, model, opt...)
 }
 
 func marshalAndInjectType(data interface{}, disableInject bool) ([]byte, error) {
@@ -56,11 +89,10 @@ func marshalAndInjectType(data interface{}, disableInject bool) ([]byte, error) 
 
 	if !disableInject {
 		nodeType := getNodeType(data)
-		snakeCase := toSnakeCase(nodeType)
 
 		switch jsonData[0] {
 		case 123: // if JSON object, starts with "{" (123 in ASCII)
-			result := fmt.Sprintf("{\"%s\":\"\",%s", snakeCase, string(jsonData[1:]))
+			result := fmt.Sprintf("{\"%s\":\"\",%s", nodeType, string(jsonData[1:]))
 			return []byte(result), nil
 		}
 	}
@@ -73,5 +105,21 @@ func getNodeType(data interface{}) string {
 	if node, ok := data.(Node); ok {
 		return node.NodeType()
 	}
-	return reflect.TypeOf(data).Elem().Name()
+	// get node type from struct name and convert to snake case
+	structName := ""
+	dataType := reflect.TypeOf(data)
+
+	switch dataType.Kind() {
+	case reflect.Struct:
+		structName = dataType.Name()
+	case reflect.Ptr, reflect.Slice:
+		dataType = dataType.Elem()
+		switch dataType.Kind() {
+		case reflect.Struct:
+			structName = dataType.Name()
+		case reflect.Ptr, reflect.Slice:
+			structName = dataType.Elem().Name()
+		}
+	}
+	return toSnakeCase(structName)
 }
