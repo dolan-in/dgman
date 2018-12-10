@@ -18,6 +18,14 @@ type TestCustomNode struct {
 	Field string `json:"field,omitempty"`
 }
 
+type TestUnique struct {
+	UID      string `json:"uid,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Username string `json:"username,omitempty" dgraph:"index=term unique"`
+	Email    string `json:"email,omitempty" dgraph:"index=term unique"`
+	No       int    `json:"no,omitempty" dgraph:"index=int unique"`
+}
+
 func (n TestCustomNode) NodeType() string {
 	return "custom_node_type"
 }
@@ -119,4 +127,114 @@ func TestAddNodeType(t *testing.T) {
 	if string(jsonData) != expected {
 		t.Errorf("expected %s got %s", expected, jsonData)
 	}
+}
+
+func TestGetNodeType(t *testing.T) {
+	nodeTypeStruct := GetNodeType(TestNode{})
+	nodeTypePtr := GetNodeType(&TestNode{})
+	nodeTypeSlice := GetNodeType([]TestNode{})
+	nodeTypeSlicePtr := GetNodeType([]*TestNode{})
+
+	assert.Equal(t, nodeTypeStruct, "test_node")
+	assert.Equal(t, nodeTypePtr, "test_node")
+	assert.Equal(t, nodeTypeSlice, "test_node")
+	assert.Equal(t, nodeTypeSlicePtr, "test_node")
+}
+
+func TestGetAllUniqueFields(t *testing.T) {
+	testUnique := &TestUnique{
+		Name:     "H3h3",
+		Username: "wildan",
+		Email:    "wildan2711@gmail.com",
+		No:       4,
+	}
+	uniqueFields := getAllUniqueFields(testUnique)
+	assert.Len(t, uniqueFields, 3)
+}
+
+func TestCreate(t *testing.T) {
+	testUnique := []TestUnique{
+		TestUnique{
+			Name:     "H3h3",
+			Username: "wildan",
+			Email:    "wildan2711@gmail.com",
+			No:       1,
+		},
+		TestUnique{
+			Name:     "PooDiePie",
+			Username: "wildansyah",
+			Email:    "wildansyah2711@gmail.com",
+			No:       2,
+		},
+		TestUnique{
+			Name:     "Poopsie",
+			Username: "wildani",
+			Email:    "wildani@gmail.com",
+			No:       3,
+		},
+	}
+
+	c := newDgraphClient()
+	if _, err := CreateSchema(c, &TestUnique{}); err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	tx := c.NewTxn()
+
+	for _, data := range testUnique {
+		_, err := Create(context.Background(), tx, &data)
+		if err != nil {
+			t.Error(err)
+		}
+	}
+	if err := tx.Commit(context.Background()); err != nil {
+		t.Error(err)
+	}
+
+	testDuplicate := []TestUnique{
+		TestUnique{
+			Name:     "H3h3",
+			Username: "wildanjing",
+			Email:    "wildan2711@gmail.com",
+			No:       4,
+		},
+		TestUnique{
+			Name:     "PooDiePie",
+			Username: "wildansyah",
+			Email:    "wildanodol2711@gmail.com",
+			No:       5,
+		},
+		TestUnique{
+			Name:     "lalap",
+			Username: "lalap",
+			Email:    "lalap@gmail.com",
+			No:       3,
+		},
+	}
+
+	tx = c.NewTxn()
+
+	var duplicates []UniqueError
+	for _, data := range testDuplicate {
+		_, err := Create(context.Background(), tx, &data)
+		if err != nil {
+			if uniqueError, ok := err.(UniqueError); ok {
+				duplicates = append(duplicates, uniqueError)
+				continue
+			}
+			t.Error(err)
+		}
+	}
+	if err := tx.Commit(context.Background()); err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, duplicates, 3)
+	assert.Equal(t, duplicates[0].Field, "email")
+	assert.Equal(t, duplicates[0].Value, "wildan2711@gmail.com")
+	assert.Equal(t, duplicates[1].Field, "username")
+	assert.Equal(t, duplicates[1].Value, "wildansyah")
+	assert.Equal(t, duplicates[2].Field, "no")
+	assert.Equal(t, duplicates[2].Value, 3)
 }
