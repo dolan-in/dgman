@@ -146,9 +146,10 @@ func TestGetAllUniqueFields(t *testing.T) {
 		Name:     "H3h3",
 		Username: "wildan",
 		Email:    "wildan2711@gmail.com",
+		No:       4,
 	}
 	uniqueFields := getAllUniqueFields(testUnique)
-	assert.Len(t, uniqueFields, 2)
+	assert.Len(t, uniqueFields, 3)
 }
 
 func TestCreate(t *testing.T) {
