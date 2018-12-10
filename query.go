@@ -32,7 +32,7 @@ func GetByUID(ctx context.Context, tx *dgo.Txn, uid string, model interface{}) e
 // GetByFilter gets a single node by using a Dgraph query filter
 // and returns the single value to the passed model struct
 func GetByFilter(ctx context.Context, tx *dgo.Txn, filter string, model interface{}) error {
-	nodeType := getNodeType(model)
+	nodeType := GetNodeType(model)
 	query := fmt.Sprintf(`{
 		data(func: has(%s)) @filter(%s) {
 			expand(_all_)
@@ -50,7 +50,7 @@ func GetByFilter(ctx context.Context, tx *dgo.Txn, filter string, model interfac
 // Find returns multiple nodes that matches the specified Dgraph query filter,
 // the passed model must be a slice
 func Find(ctx context.Context, tx *dgo.Txn, filter string, model interface{}) error {
-	nodeType := getNodeType(model)
+	nodeType := GetNodeType(model)
 	query := fmt.Sprintf(`{
 		data(func: has(%s)) @filter(%s) {
 			expand(_all_)

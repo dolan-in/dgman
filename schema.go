@@ -23,6 +23,7 @@ type rawSchema struct {
 	List       bool
 	Upsert     bool
 	Type       string
+	Unique     bool
 }
 
 type Schema struct {
@@ -34,6 +35,7 @@ type Schema struct {
 	Count     bool
 	List      bool
 	Upsert    bool
+	Unique    bool
 }
 
 func (s Schema) String() string {
@@ -97,18 +99,15 @@ func marshalSchema(initSchemaMap SchemaMap, models ...interface{}) SchemaMap {
 		for i := 0; i < numFields; i++ {
 			field := current.Field(i)
 
-			jsonTags := strings.Split(field.Tag.Get("json"), ",")
-			name := jsonTags[0]
+			s, err := parseDgraphTag(&field)
+			if err != nil {
+				log.Println("unmarshal dgraph tag: ", err)
+				continue
+			}
 
-			schema, _ := schemaMap[name]
+			schema, _ := schemaMap[s.Predicate]
 			// don't parse struct composition fields (empty name), don't need to parse uid
-			if name != "" && name != "uid" {
-				s, err := parseDgraphTag(name, &field)
-				if err != nil {
-					log.Println("unmarshal dgraph tag: ", err)
-					continue
-				}
-
+			if s.Predicate != "" && s.Predicate != "uid" {
 				// edge
 				if s.Type == "uid" {
 					// traverse node
@@ -117,9 +116,9 @@ func marshalSchema(initSchemaMap SchemaMap, models ...interface{}) SchemaMap {
 				}
 
 				if schema != nil && schema.String() != s.String() {
-					log.Printf("conflicting schema %s, already defined as \"%s\", trying to define \"%s\"\n", name, schema.String(), s.String())
+					log.Printf("conflicting schema %s, already defined as \"%s\", trying to define \"%s\"\n", s.Predicate, schema.String(), s.String())
 				} else {
-					schemaMap[name] = s
+					schemaMap[s.Predicate] = s
 				}
 			}
 		}
@@ -165,9 +164,13 @@ func getSchemaType(fieldType reflect.Type) string {
 	return schemaType
 }
 
-func parseDgraphTag(predicate string, field *reflect.StructField) (*Schema, error) {
+func parseDgraphTag(field *reflect.StructField) (*Schema, error) {
+	// get field name from json tag
+	jsonTags := strings.Split(field.Tag.Get("json"), ",")
+	name := jsonTags[0]
+
 	schema := &Schema{
-		Predicate: predicate,
+		Predicate: name,
 		Type:      getSchemaType(field.Type),
 	}
 
@@ -184,6 +187,7 @@ func parseDgraphTag(predicate string, field *reflect.StructField) (*Schema, erro
 		schema.Upsert = dgraphProps.Upsert
 		schema.Count = dgraphProps.Count
 		schema.Reverse = dgraphProps.Reverse
+		schema.Unique = dgraphProps.Unique
 
 		if dgraphProps.Type != "" {
 			schema.Type = dgraphProps.Type
@@ -208,6 +212,20 @@ func reflectType(model interface{}) (reflect.Type, error) {
 	}
 
 	return current, nil
+}
+
+func reflectValue(model interface{}) (*reflect.Value, error) {
+	current := reflect.ValueOf(model)
+
+	if current.Kind() == reflect.Ptr && !current.IsNil() {
+		current = current.Elem()
+	}
+
+	if current.Kind() != reflect.Struct && current.Kind() != reflect.Interface {
+		return nil, fmt.Errorf("model \"%s\" passed for schema is not a struct", current.Type().Name())
+	}
+
+	return &current, nil
 }
 
 func parseStructTag(tag string) (*rawSchema, error) {
