@@ -37,13 +37,13 @@ func TestAddNode(t *testing.T) {
 	defer dropAll(c)
 
 	tx := c.NewTxn()
-	uid, err := Mutate(context.Background(), tx, &testData)
+
+	uids, err := Mutate(context.Background(), tx, testData, MutateOptions{CommitNow: true})
 	if err != nil {
 		t.Error(err)
 	}
-	if err := tx.Commit(context.Background()); err != nil {
-		t.Error(err)
-	}
+
+	uid := uids["blank-0"]
 
 	tx = c.NewTxn()
 
@@ -80,13 +80,11 @@ func TestAddCustomeNode(t *testing.T) {
 	defer dropAll(c)
 
 	tx := c.NewTxn()
-	uid, err := Mutate(context.Background(), tx, &testData)
+	uids, err := Mutate(context.Background(), tx, &testData, MutateOptions{CommitNow: true})
 	if err != nil {
 		t.Error(err)
 	}
-	if err := tx.Commit(context.Background()); err != nil {
-		t.Error(err)
-	}
+	uid := uids["blank-0"]
 
 	tx = c.NewTxn()
 
@@ -123,7 +121,23 @@ func TestAddNodeType(t *testing.T) {
 		t.Error(err)
 	}
 
+	// object
 	expected := "{\"test_node\":\"\",\"field\":\"test\"}"
+	if string(jsonData) != expected {
+		t.Errorf("expected %s got %s", expected, jsonData)
+	}
+
+	testDataArray := []TestNode{
+		TestNode{"", "test"},
+		TestNode{"", "test"},
+	}
+
+	// array
+	expected = `[{"test_node":"","field":"test"},{"test_node":"","field":"test"}]`
+	jsonData, err = marshalAndInjectType(&testDataArray, false)
+	if err != nil {
+		t.Error(err)
+	}
 	if string(jsonData) != expected {
 		t.Errorf("expected %s got %s", expected, jsonData)
 	}
@@ -182,11 +196,9 @@ func TestCreate(t *testing.T) {
 
 	tx := c.NewTxn()
 
-	for _, data := range testUnique {
-		_, err := Create(context.Background(), tx, &data)
-		if err != nil {
-			t.Error(err)
-		}
+	_, err := Create(context.Background(), tx, &testUnique)
+	if err != nil {
+		t.Error(err)
 	}
 	if err := tx.Commit(context.Background()); err != nil {
 		t.Error(err)

@@ -203,8 +203,12 @@ func parseDgraphTag(field *reflect.StructField) (*Schema, error) {
 func reflectType(model interface{}) (reflect.Type, error) {
 	current := reflect.TypeOf(model)
 
-	if current.Kind() == reflect.Ptr && current != nil {
+	if (current.Kind() == reflect.Ptr || current.Kind() == reflect.Slice) && current != nil {
 		current = current.Elem()
+		// if pointer to slice
+		if current.Kind() == reflect.Slice {
+			current = current.Elem()
+		}
 	}
 
 	if current.Kind() != reflect.Struct && current.Kind() != reflect.Interface {
