@@ -29,10 +29,12 @@ func TestGetByUID(t *testing.T) {
 
 	ctx := context.Background()
 
-	uid, err := Mutate(ctx, tx, source, MutateOptions{CommitNow: true})
+	uids, err := Mutate(ctx, tx, source, MutateOptions{CommitNow: true})
 	if err != nil {
 		t.Error(err)
 	}
+
+	uid := uids["blank-0"]
 
 	dst := &TestModel{}
 	tx = c.NewTxn()
@@ -109,11 +111,9 @@ func TestFind(t *testing.T) {
 
 	ctx := context.Background()
 
-	for _, node := range source {
-		_, err := Mutate(ctx, tx, node)
-		if err != nil {
-			t.Error(err)
-		}
+	_, err := Mutate(ctx, tx, &source)
+	if err != nil {
+		t.Error(err)
 	}
 	tx.Commit(ctx)
 

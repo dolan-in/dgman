@@ -29,7 +29,7 @@ type MutateOptions struct {
 
 // Mutate is a shortcut to create mutations from data to be marshalled into JSON,
 // it will inject the node type from the Struct name converted to snake_case
-func Mutate(ctx context.Context, tx *dgo.Txn, data interface{}, options ...MutateOptions) (string, error) {
+func Mutate(ctx context.Context, tx *dgo.Txn, data interface{}, options ...MutateOptions) (uids map[string]string, err error) {
 	opt := MutateOptions{}
 	if len(options) > 0 {
 		opt = options[0]
@@ -38,7 +38,7 @@ func Mutate(ctx context.Context, tx *dgo.Txn, data interface{}, options ...Mutat
 	out, err := marshalAndInjectType(data, opt.DisableInject)
 	if err != nil {
 		log.Println("marshal", err)
-		return "", err
+		return nil, err
 	}
 
 	assigned, err := tx.Mutate(ctx, &api.Mutation{
@@ -47,29 +47,48 @@ func Mutate(ctx context.Context, tx *dgo.Txn, data interface{}, options ...Mutat
 	})
 	if err != nil {
 		log.Println("mutate", err)
-		return "", err
+		return nil, err
 	}
 
-	// TODO: handle bulk mutations
-	uid, ok := assigned.Uids["blank-0"]
-	if !ok {
-		// if update, no uid's assigned
-		return "", nil
-	}
-	return uid, nil
+	return assigned.Uids, nil
 }
 
 // Create is similar to Mutate, but checks for fields that must be unique for a certain node type
-func Create(ctx context.Context, tx *dgo.Txn, model interface{}, opt ...MutateOptions) (uid string, err error) {
-	uniqueFields := getAllUniqueFields(model)
+func Create(ctx context.Context, tx *dgo.Txn, model interface{}, opt ...MutateOptions) (uids map[string]string, err error) {
+	modelType, err := reflectType(model)
+	if err != nil {
+		return nil, err
+	}
 
-	for field, value := range uniqueFields {
-		if exists(ctx, tx, field, value, model) {
-			return "", UniqueError{field, value}
+	switch modelType.Kind() {
+	case reflect.Slice:
+		s := reflect.ValueOf(model)
+
+		for i := 0; i < s.Len(); i++ {
+			v := s.Index(i).Interface()
+			if err := unique(ctx, tx, v); err != nil {
+				return nil, err
+			}
+		}
+	case reflect.Struct:
+		if err := unique(ctx, tx, model); err != nil {
+			return nil, err
 		}
 	}
 
 	return Mutate(ctx, tx, model, opt...)
+}
+
+func unique(ctx context.Context, tx *dgo.Txn, model interface{}) error {
+	uniqueFields := getAllUniqueFields(model)
+
+	for field, value := range uniqueFields {
+		if exists(ctx, tx, field, value, model) {
+			return UniqueError{field, value}
+		}
+	}
+
+	return nil
 }
 
 func exists(ctx context.Context, tx *dgo.Txn, field string, value interface{}, model interface{}) bool {
@@ -125,9 +144,20 @@ func marshalAndInjectType(data interface{}, disableInject bool) ([]byte, error) 
 	if !disableInject {
 		nodeType := GetNodeType(data)
 
-		switch jsonData[0] {
-		case 123: // if JSON object, starts with "{" (123 in ASCII)
+		jsonString := jsonData
+		switch string(jsonString[0]) {
+		case "{": // if JSON object, starts with "{"
 			result := fmt.Sprintf("{\"%s\":\"\",%s", nodeType, string(jsonData[1:]))
+			return []byte(result), nil
+		case "[":
+			result := ""
+			for _, char := range jsonString {
+				if string(char) == "{" {
+					result += fmt.Sprintf("{\"%s\":\"\",", nodeType)
+					continue
+				}
+				result += string(char)
+			}
 			return []byte(result), nil
 		}
 	}
