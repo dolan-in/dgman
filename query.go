@@ -48,7 +48,7 @@ func GetByFilter(ctx context.Context, tx *dgo.Txn, filter string, model interfac
 }
 
 // Find returns multiple nodes that matches the specified Dgraph query filter,
-// the passed model must be a slice
+// the passed model must be a pointer to a slice
 func Find(ctx context.Context, tx *dgo.Txn, filter string, model interface{}) error {
 	nodeType := GetNodeType(model)
 	query := fmt.Sprintf(`{

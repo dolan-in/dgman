@@ -147,13 +147,13 @@ func marshalAndInjectType(data interface{}, disableInject bool) ([]byte, error) 
 		jsonString := jsonData
 		switch string(jsonString[0]) {
 		case "{": // if JSON object, starts with "{"
-			result := fmt.Sprintf("{\"%s\":\"\",%s", nodeType, string(jsonData[1:]))
+			result := fmt.Sprintf(`{"%s":"",%s`, nodeType, string(jsonData[1:]))
 			return []byte(result), nil
-		case "[":
+		case "[": // if JSON array, starts with "[", inject node type one by one
 			result := ""
 			for _, char := range jsonString {
 				if string(char) == "{" {
-					result += fmt.Sprintf("{\"%s\":\"\",", nodeType)
+					result += fmt.Sprintf(`{"%s":"",`, nodeType)
 					continue
 				}
 				result += string(char)
