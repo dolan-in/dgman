@@ -1,3 +1,19 @@
+/*
+ * Copyright (C) 2018 Dolan and Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package dgman
 
 import (
@@ -164,13 +180,15 @@ func getSchemaType(fieldType reflect.Type) string {
 	return schemaType
 }
 
-func parseDgraphTag(field *reflect.StructField) (*Schema, error) {
+func getPredicate(field *reflect.StructField) string {
 	// get field name from json tag
 	jsonTags := strings.Split(field.Tag.Get("json"), ",")
-	name := jsonTags[0]
+	return jsonTags[0]
+}
 
+func parseDgraphTag(field *reflect.StructField) (*Schema, error) {
 	schema := &Schema{
-		Predicate: name,
+		Predicate: getPredicate(field),
 		Type:      getSchemaType(field.Type),
 	}
 
@@ -225,8 +243,8 @@ func reflectValue(model interface{}) (*reflect.Value, error) {
 		current = current.Elem()
 	}
 
-	if current.Kind() != reflect.Struct && current.Kind() != reflect.Interface {
-		return nil, fmt.Errorf("model \"%s\" passed for schema is not a struct", current.Type().Name())
+	if current.Kind() != reflect.Struct && current.Kind() != reflect.Slice && current.Kind() != reflect.Interface {
+		return nil, fmt.Errorf("model \"%s\" passed for schema is not a struct or slice", current.Type().Name())
 	}
 
 	return &current, nil

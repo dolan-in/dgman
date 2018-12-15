@@ -1,3 +1,19 @@
+/*
+ * Copyright (C) 2018 Dolan and Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package dgman
 
 import (
@@ -48,7 +64,7 @@ func GetByFilter(ctx context.Context, tx *dgo.Txn, filter string, model interfac
 }
 
 // Find returns multiple nodes that matches the specified Dgraph query filter,
-// the passed model must be a slice
+// the passed model must be a pointer to a slice
 func Find(ctx context.Context, tx *dgo.Txn, filter string, model interface{}) error {
 	nodeType := GetNodeType(model)
 	query := fmt.Sprintf(`{

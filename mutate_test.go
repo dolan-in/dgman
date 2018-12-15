@@ -1,3 +1,19 @@
+/*
+ * Copyright (C) 2018 Dolan and Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package dgman
 
 import (
@@ -38,12 +54,10 @@ func TestAddNode(t *testing.T) {
 
 	tx := c.NewTxn()
 
-	uids, err := Mutate(context.Background(), tx, testData, MutateOptions{CommitNow: true})
+	err := Mutate(context.Background(), tx, &testData, MutateOptions{CommitNow: true})
 	if err != nil {
 		t.Error(err)
 	}
-
-	uid := uids["blank-0"]
 
 	tx = c.NewTxn()
 
@@ -70,7 +84,7 @@ func TestAddNode(t *testing.T) {
 	}
 
 	assert.Len(t, result.Data, 1)
-	assert.Equal(t, uid, result.Data[0].UID)
+	assert.Equal(t, testData.UID, result.Data[0].UID)
 }
 
 func TestAddCustomeNode(t *testing.T) {
@@ -80,11 +94,10 @@ func TestAddCustomeNode(t *testing.T) {
 	defer dropAll(c)
 
 	tx := c.NewTxn()
-	uids, err := Mutate(context.Background(), tx, &testData, MutateOptions{CommitNow: true})
+	err := Mutate(context.Background(), tx, &testData, MutateOptions{CommitNow: true})
 	if err != nil {
 		t.Error(err)
 	}
-	uid := uids["blank-0"]
 
 	tx = c.NewTxn()
 
@@ -111,7 +124,7 @@ func TestAddCustomeNode(t *testing.T) {
 	}
 
 	assert.Len(t, result.Data, 1)
-	assert.Equal(t, uid, result.Data[0].UID)
+	assert.Equal(t, testData.UID, result.Data[0].UID)
 }
 
 func TestAddNodeType(t *testing.T) {
@@ -196,12 +209,18 @@ func TestCreate(t *testing.T) {
 
 	tx := c.NewTxn()
 
-	_, err := Create(context.Background(), tx, &testUnique)
+	err := Create(context.Background(), tx, &testUnique)
 	if err != nil {
 		t.Error(err)
 	}
 	if err := tx.Commit(context.Background()); err != nil {
 		t.Error(err)
+	}
+
+	for _, el := range testUnique {
+		if el.UID == "" {
+			t.Error("uid is nil")
+		}
 	}
 
 	testDuplicate := []TestUnique{
@@ -229,7 +248,7 @@ func TestCreate(t *testing.T) {
 
 	var duplicates []UniqueError
 	for _, data := range testDuplicate {
-		_, err := Create(context.Background(), tx, &data)
+		err := Create(context.Background(), tx, &data)
 		if err != nil {
 			if uniqueError, ok := err.(UniqueError); ok {
 				duplicates = append(duplicates, uniqueError)
