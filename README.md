@@ -12,6 +12,21 @@
 - Field unique checking (e.g: emails, username).
 - Query helpers.
 
+## Table of Contents
+
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Schema Definition](#schema-definition)
+  - [Mutate Helpers](#mutate-helpers)
+    - [Mutate](#mutate)
+    - [Node Types](#node-types)
+    - [Create (Mutate with Unique Checking)](#create-mutate-with-unique-checking)
+  - [Query Helpers](#query-helpers)
+    - [GetByUID](#getbyuid)
+    - [GetByFilter](#getbyfilter)
+    - [Find](#find)
+- [TODO](#todo)
+
 ## Installation
 
 Using go get:
@@ -23,6 +38,12 @@ Using dep:
 `dep ensure -add github.com/dolan-in/dgman`
 
 ## Usage 
+
+```
+import(
+	"github.com/dolan-in/dgman"
+)
+```
 
 ### Schema Definition
 
@@ -107,4 +128,138 @@ When schema conflicts is detected with the existing schema already installed in 
 
 ### Mutate Helpers
 
-Using the `Mutate` function, it will int
+#### Mutate
+
+Using the `Mutate` function, before sending a mutation, it will marshal a struct into JSON and injecting a [node type](https://docs.dgraph.io/howto/#giving-nodes-a-type), for easier labelling nodes, or in SQL it would refer to the table.
+
+```go
+user := User{
+	Name: "Alexander",
+	Email: "alexander@gmail.com",
+	Username: "alex123",
+}
+
+if err := dgman.Mutate(context.Background(), c.NewTxn(), &user, dgman.MutateOptions{CommitNow: true}); err != nil {
+	panic(err)
+}
+
+// UID will be set
+fmt.Println(user.UID)
+```
+
+The above will insert a node with the following JSON string, with the field `"user":""` added in:
+
+```json
+{"user":"","email":"alexander@gmail.com","username":"alex123"}
+```
+
+#### Node Types
+
+[Node types](https://docs.dgraph.io/howto/#giving-nodes-a-type) will be inferred from the struct name and converted into snake_case, so the `User` struct above would use `user` as its node type.
+
+If you need to define a custom name for the node type, you can define the `NodeType() string` method on the struct.
+
+```go
+type CustomNodeType struct {
+	UID 	string `json:"uid,omitempty"`
+	Name 	string `json:"name,omitempty"`
+}
+
+func (c CustomNodeType) NodeType() string {
+	return "node_type"
+}
+```
+
+#### Create (Mutate with Unique Checking)
+
+If you need unique checking for a particular field of a node with a certain node type, e.g: Email of users, you can use the `Create` function.
+
+To define a field to be unique, add `unique` in the `dgraph` tag on the struct definition.
+
+```go
+type User struct {
+	UID 		string `json:"uid,omitempty"`
+	Name 		string `json:"name,omitempty"`
+	Email 		string `json:"email,omitempty" dgraph:"index=hash unique"`
+	Username 	string `json:"username,omitempty" dgraph:"index=term unique"`
+}
+
+...
+	user := User{
+		Name: "Alexander",
+		Email: "alexander@gmail.com",
+		Username: "alex123",
+	}
+
+	if err := dgman.Create(context.Background(), c.NewTxn(), &user, dgman.MutateOptions{CommitNow: true}); err != nil {
+		panic(err)
+	}
+	
+	// try to create user with a duplicate email
+	duplicateEmail := User{
+		Name: "Alexander",
+		Email: "alexander@gmail.com",
+		Username: "alexa",
+	}
+
+	// will return a dgman.UniqueError
+	if err := dgman.Create(context.Background(), c.NewTxn(), &duplicateEmail, dgman.MutateOptions{CommitNow: true}); err != nil {
+		if uniqueErr, ok := err.(dgman.UniqueError); ok {
+			// check the duplicate field
+			fmt.Println(uniqueErr.Field, uniqueErr.Value)
+		}
+	}
+
+```
+
+### Query Helpers
+
+#### GetByUID
+
+```go
+user := User{}
+if err := GetByUID(ctx, tx, "0x9cd5", &user); err != nil {
+	if err == dgman.ErrNodeNotFound {
+		// node not found
+	}
+}
+
+// struct will be populated if found
+fmt.Println(user)
+```
+
+### GetByFilter
+
+```go
+user := User{}
+filter := `allofterms(name, "wildan")`
+// get node with node type `user` that matches filter
+if err := GetByUID(ctx, tx, filter, &user); err != nil {
+	if err == dgman.ErrNodeNotFound {
+		// node using the specified filter not found
+	}
+}
+
+// struct will be populated if found
+fmt.Println(user)
+```
+
+### Find
+
+```go
+users := []User{}
+filter := `allofterms(name, "wildan")`
+// find all nodes with node type `user` that matches the filter
+if err := GetByUID(ctx, tx, filter, &user); err != nil {
+	panic(err)
+}
+
+// return list of user nodes with name containing "wildan"
+fmt.Println(users)
+```
+
+## TODO
+
+- Delete helpers
+- More query options (nested filters, facets, edge expansion)
+- Optimizations (especially the reflection codes)

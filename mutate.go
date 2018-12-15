@@ -1,3 +1,19 @@
+/*
+ * Copyright (C) 2018 Dolan and Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package dgman
 
 import (
@@ -29,7 +45,7 @@ type MutateOptions struct {
 
 // Mutate is a shortcut to create mutations from data to be marshalled into JSON,
 // it will inject the node type from the Struct name converted to snake_case
-func Mutate(ctx context.Context, tx *dgo.Txn, data interface{}, options ...MutateOptions) (uids map[string]string, err error) {
+func Mutate(ctx context.Context, tx *dgo.Txn, data interface{}, options ...MutateOptions) error {
 	opt := MutateOptions{}
 	if len(options) > 0 {
 		opt = options[0]
@@ -37,8 +53,7 @@ func Mutate(ctx context.Context, tx *dgo.Txn, data interface{}, options ...Mutat
 
 	out, err := marshalAndInjectType(data, opt.DisableInject)
 	if err != nil {
-		log.Println("marshal", err)
-		return nil, err
+		return err
 	}
 
 	assigned, err := tx.Mutate(ctx, &api.Mutation{
@@ -46,33 +61,92 @@ func Mutate(ctx context.Context, tx *dgo.Txn, data interface{}, options ...Mutat
 		CommitNow: opt.CommitNow,
 	})
 	if err != nil {
-		log.Println("mutate", err)
-		return nil, err
+		return err
 	}
 
-	return assigned.Uids, nil
+	return saveUID(assigned.Uids, data)
+}
+
+// saveUID saves the UID to the passed model, field with uid json tag
+func saveUID(uids map[string]string, model interface{}) error {
+	v, err := reflectValue(model)
+	if err != nil {
+		return err
+	}
+
+	if len(uids) == 1 {
+		numFields := v.NumField()
+		// single node, just set the uid
+		for i := 0; i < numFields; i++ {
+			field := v.Field(i)
+
+			fieldType := v.Type().Field(i)
+			name := getPredicate(&fieldType)
+
+			if name == "uid" {
+				for _, uid := range uids {
+					field.SetString(uid)
+					return nil
+				}
+			}
+		}
+	} else if len(uids) > 1 {
+		// passed model was a slice, so multiple nodes
+		// iterate the uid list and set the uid
+		sliceType, err := reflectType(v.Interface())
+		if err != nil {
+			return err
+		}
+
+		// iterate the fields, find the uid field index
+		numFields := sliceType.NumField()
+		uidIndex := 0
+		for i := 0; i < numFields; i++ {
+			fieldType := sliceType.Field(i)
+			name := getPredicate(&fieldType)
+
+			if name == "uid" {
+				uidIndex = i
+				break
+			}
+		}
+
+		// set uids
+		i := 0
+		for _, uid := range uids {
+			el := v.Index(i)
+			el.Field(uidIndex).SetString(uid)
+
+			i++
+		}
+	}
+
+	return nil
 }
 
 // Create is similar to Mutate, but checks for fields that must be unique for a certain node type
-func Create(ctx context.Context, tx *dgo.Txn, model interface{}, opt ...MutateOptions) (uids map[string]string, err error) {
-	modelType, err := reflectType(model)
-	if err != nil {
-		return nil, err
+func Create(ctx context.Context, tx *dgo.Txn, model interface{}, opt ...MutateOptions) error {
+	modelType := reflect.TypeOf(model)
+	if modelType.Kind() == reflect.Ptr {
+		modelType = modelType.Elem()
 	}
 
 	switch modelType.Kind() {
 	case reflect.Slice:
 		s := reflect.ValueOf(model)
+		if s.Type().Kind() == reflect.Ptr {
+			s = s.Elem()
+		}
 
 		for i := 0; i < s.Len(); i++ {
 			v := s.Index(i).Interface()
 			if err := unique(ctx, tx, v); err != nil {
-				return nil, err
+				return err
 			}
 		}
 	case reflect.Struct:
 		if err := unique(ctx, tx, model); err != nil {
-			return nil, err
+			return err
 		}
 	}
 

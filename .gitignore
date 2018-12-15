@@ -4,5 +4,8 @@ w
 p
 
 vendor
+# binaries
 examples/schema/schema
 examples/schema/schema.exe
+examples/mutate/mutate
+examples/mutate/mutate.exe
