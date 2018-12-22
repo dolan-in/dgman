@@ -3,7 +3,7 @@ git:
   depth: 50
 sudo: required
 install:
-- curl https://get.dgraph.io -sSf | bash
+- curl https://get.dgraph.io -sSf | bash /dev/stdin "-y"
 - curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
 - dep ensure
 - go get golang.org/x/tools/cmd/cover
