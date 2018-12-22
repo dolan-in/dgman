@@ -37,10 +37,111 @@ func (u UniqueError) Error() string {
 	return fmt.Sprintf("%s %v already exists\n", u.Field, u.Value)
 }
 
+type NotNullError struct {
+	Field string
+}
+
+func (n NotNullError) Error() string {
+	return fmt.Sprintf("%s must not be null or zero\n", n.Field)
+}
+
+type mutateType struct {
+	vType  reflect.Type
+	schema map[int]*Schema
+}
+
+func newMutateType(model interface{}) (*mutateType, error) {
+	mType := &mutateType{}
+	mType.schema = make(map[int]*Schema)
+
+	vType, err := reflectType(model)
+	if err != nil {
+		return nil, err
+	}
+
+	mType.vType = vType
+
+	numFields := vType.NumField()
+	for i := 0; i < numFields; i++ {
+		structField := vType.Field(i)
+
+		s, err := parseDgraphTag(&structField)
+		if err != nil {
+			return nil, err
+		}
+
+		mType.schema[i] = s
+	}
+
+	return mType, nil
+}
+
+// saveUID saves the UID to the passed model, field with uid json tag
+func (m *mutateType) saveUID(uids map[string]string, model interface{}) error {
+	val, err := reflectValue(model)
+	if err != nil {
+		return err
+	}
+
+	if len(uids) == 1 {
+		numFields := m.vType.NumField()
+		// single node, just set the uid
+		for i := 0; i < numFields; i++ {
+			log.Println("here 1")
+			field := val.Field(i)
+			log.Println("here 2")
+
+			if m.schema[i].Predicate == "uid" {
+				for _, uid := range uids {
+					field.SetString(uid)
+					return nil
+				}
+			}
+		}
+	} else if len(uids) > 1 {
+		// passed model was a slice, so multiple nodes
+		// iterate the uid list and set the uid
+		// iterate the fields, find the uid field index
+		numFields := m.vType.NumField()
+		uidIndex := 0
+		for i := 0; i < numFields; i++ {
+			if m.schema[i].Predicate == "uid" {
+				uidIndex = i
+				break
+			}
+		}
+
+		// set uids
+		i := 0
+		for _, uid := range uids {
+			log.Println("here 3")
+			el := val.Index(i)
+			log.Println("here 4")
+			el.Field(uidIndex).SetString(uid)
+
+			i++
+		}
+	}
+
+	return nil
+}
+
 // MutateOptions specifies options for mutating
 type MutateOptions struct {
 	DisableInject bool
 	CommitNow     bool
+}
+
+func mutate(ctx context.Context, tx *dgo.Txn, data interface{}, opt MutateOptions) (*api.Assigned, error) {
+	out, err := marshalAndInjectType(data, opt.DisableInject)
+	if err != nil {
+		return nil, err
+	}
+
+	return tx.Mutate(ctx, &api.Mutation{
+		SetJson:   out,
+		CommitNow: opt.CommitNow,
+	})
 }
 
 // Mutate is a shortcut to create mutations from data to be marshalled into JSON,
@@ -51,113 +152,77 @@ func Mutate(ctx context.Context, tx *dgo.Txn, data interface{}, options ...Mutat
 		opt = options[0]
 	}
 
-	out, err := marshalAndInjectType(data, opt.DisableInject)
+	mType, err := newMutateType(data)
 	if err != nil {
 		return err
 	}
 
-	assigned, err := tx.Mutate(ctx, &api.Mutation{
-		SetJson:   out,
-		CommitNow: opt.CommitNow,
-	})
+	assigned, err := mutate(ctx, tx, data, opt)
 	if err != nil {
 		return err
 	}
 
-	return saveUID(assigned.Uids, data)
+	return mType.saveUID(assigned.Uids, data)
 }
 
-// saveUID saves the UID to the passed model, field with uid json tag
-func saveUID(uids map[string]string, model interface{}) error {
-	v, err := reflectValue(model)
+// Create is similar to Mutate, but checks for fields that must be unique for a certain node type
+func Create(ctx context.Context, tx *dgo.Txn, data interface{}, options ...MutateOptions) error {
+	opt := MutateOptions{}
+	if len(options) > 0 {
+		opt = options[0]
+	}
+
+	mType, err := newMutateType(data)
 	if err != nil {
 		return err
 	}
 
-	if len(uids) == 1 {
-		numFields := v.NumField()
-		// single node, just set the uid
-		for i := 0; i < numFields; i++ {
-			field := v.Field(i)
+	if err := mType.constraintChecks(ctx, tx, data); err != nil {
+		return err
+	}
 
-			fieldType := v.Type().Field(i)
-			name := getPredicate(&fieldType)
+	assigned, err := mutate(ctx, tx, data, opt)
+	if err != nil {
+		return err
+	}
 
-			if name == "uid" {
-				for _, uid := range uids {
-					field.SetString(uid)
-					return nil
-				}
+	return mType.saveUID(assigned.Uids, data)
+}
+
+func (m *mutateType) constraintChecks(ctx context.Context, tx *dgo.Txn, data interface{}) error {
+	val, err := reflectValue(data)
+	if err != nil {
+		return err
+	}
+
+	modelType := val.Type()
+
+	switch modelType.Kind() {
+	case reflect.Slice:
+		len := val.Len()
+		for i := 0; i < len; i++ {
+			v := val.Index(i).Interface()
+			if err := m.unique(ctx, tx, v); err != nil {
+				return err
 			}
 		}
-	} else if len(uids) > 1 {
-		// passed model was a slice, so multiple nodes
-		// iterate the uid list and set the uid
-		sliceType, err := reflectType(v.Interface())
-		if err != nil {
+	case reflect.Struct:
+		if err := m.unique(ctx, tx, data); err != nil {
 			return err
-		}
-
-		// iterate the fields, find the uid field index
-		numFields := sliceType.NumField()
-		uidIndex := 0
-		for i := 0; i < numFields; i++ {
-			fieldType := sliceType.Field(i)
-			name := getPredicate(&fieldType)
-
-			if name == "uid" {
-				uidIndex = i
-				break
-			}
-		}
-
-		// set uids
-		i := 0
-		for _, uid := range uids {
-			el := v.Index(i)
-			el.Field(uidIndex).SetString(uid)
-
-			i++
 		}
 	}
 
 	return nil
 }
 
-// Create is similar to Mutate, but checks for fields that must be unique for a certain node type
-func Create(ctx context.Context, tx *dgo.Txn, model interface{}, opt ...MutateOptions) error {
-	modelType := reflect.TypeOf(model)
-	if modelType.Kind() == reflect.Ptr {
-		modelType = modelType.Elem()
+func (m *mutateType) unique(ctx context.Context, tx *dgo.Txn, data interface{}) error {
+	uniqueFields, err := m.getAllUniqueFields(data)
+	if err != nil {
+		return err
 	}
-
-	switch modelType.Kind() {
-	case reflect.Slice:
-		s := reflect.ValueOf(model)
-		if s.Type().Kind() == reflect.Ptr {
-			s = s.Elem()
-		}
-
-		for i := 0; i < s.Len(); i++ {
-			v := s.Index(i).Interface()
-			if err := unique(ctx, tx, v); err != nil {
-				return err
-			}
-		}
-	case reflect.Struct:
-		if err := unique(ctx, tx, model); err != nil {
-			return err
-		}
-	}
-
-	return Mutate(ctx, tx, model, opt...)
-}
-
-func unique(ctx context.Context, tx *dgo.Txn, model interface{}) error {
-	uniqueFields := getAllUniqueFields(model)
 
 	for field, value := range uniqueFields {
-		if exists(ctx, tx, field, value, model) {
+		if exists(ctx, tx, field, value, data) {
 			return UniqueError{field, value}
 		}
 	}
@@ -183,29 +248,36 @@ func exists(ctx context.Context, tx *dgo.Txn, field string, value interface{}, m
 }
 
 // getAllUniqueFields gets all values of the fields that has to be unique
-func getAllUniqueFields(model interface{}) map[string]interface{} {
-	v, err := reflectValue(model)
+// and also checks for not null constraints
+func (m *mutateType) getAllUniqueFields(data interface{}) (map[string]interface{}, error) {
+	v, err := reflectValue(data)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	numFields := v.NumField()
-
+	log.Println(m.vType, v.Type())
 	// map all fields that must be unique
 	uniqueValueMap := make(map[string]interface{})
-	for i := 0; i < numFields; i++ {
+	for i := 0; i < m.vType.NumField(); i++ {
 		field := v.Field(i)
-		structField := v.Type().Field(i)
-
-		s, err := parseDgraphTag(&structField)
-		if err != nil {
-			return nil
-		}
+		s := m.schema[i]
 
 		if s.Unique {
-			uniqueValueMap[s.Predicate] = field.Interface()
+			val := field.Interface()
+			if isNull(val) {
+				if s.NotNull {
+					return nil, NotNullError{s.Predicate}
+				}
+				// if not null is not set, don't check for unique if value is null
+				continue
+			}
+			uniqueValueMap[s.Predicate] = val
 		}
 	}
-	return uniqueValueMap
+	return uniqueValueMap, nil
+}
+
+func isNull(x interface{}) bool {
+	return x == nil || reflect.DeepEqual(x, reflect.Zero(reflect.TypeOf(x)).Interface())
 }
 
 func marshalAndInjectType(data interface{}, disableInject bool) ([]byte, error) {
