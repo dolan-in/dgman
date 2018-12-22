@@ -35,11 +35,12 @@ type TestCustomNode struct {
 }
 
 type TestUnique struct {
-	UID      string `json:"uid,omitempty"`
-	Name     string `json:"name,omitempty"`
-	Username string `json:"username,omitempty" dgraph:"index=term unique"`
-	Email    string `json:"email,omitempty" dgraph:"index=term unique"`
-	No       int    `json:"no,omitempty" dgraph:"index=int unique"`
+	UID        string `json:"uid,omitempty"`
+	Name       string `json:"name,omitempty"`
+	Username   string `json:"username,omitempty" dgraph:"index=term unique"`
+	Email      string `json:"email,omitempty" dgraph:"index=term unique notnull"`
+	No         int    `json:"no,omitempty" dgraph:"index=int unique"`
+	unexported int
 }
 
 func (n TestCustomNode) NodeType() string {
@@ -175,7 +176,15 @@ func TestGetAllUniqueFields(t *testing.T) {
 		Email:    "wildan2711@gmail.com",
 		No:       4,
 	}
-	uniqueFields := getAllUniqueFields(testUnique)
+	mType, err := newMutateType(testUnique)
+	if err != nil {
+		t.Error(err)
+	}
+
+	uniqueFields, err := mType.getAllUniqueFields(testUnique)
+	if err != nil {
+		t.Error(err)
+	}
 	assert.Len(t, uniqueFields, 3)
 }
 
@@ -268,4 +277,65 @@ func TestCreate(t *testing.T) {
 	assert.Equal(t, duplicates[1].Value, "wildansyah")
 	assert.Equal(t, duplicates[2].Field, "no")
 	assert.Equal(t, duplicates[2].Value, 3)
+}
+
+func TestIsNull(t *testing.T) {
+	assert.True(t, isNull(""))
+	assert.True(t, isNull(0))
+	assert.True(t, isNull(false))
+	assert.True(t, isNull(nil))
+}
+
+func TestCreateNull(t *testing.T) {
+	c := newDgraphClient()
+	if _, err := CreateSchema(c, &TestUnique{}); err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	testUniqueNull := TestUnique{
+		Name:     "H3h3",
+		Username: "",
+		Email:    "wildan2711@gmail.com",
+		No:       4,
+	}
+
+	if err := Create(context.Background(), c.NewTxn(), &testUniqueNull, MutateOptions{CommitNow: true}); err != nil {
+		t.Error(err)
+	}
+
+	testUniqueNullAgain := TestUnique{
+		Name:     "tete",
+		Username: "",
+		Email:    "newemail@gmail.com",
+		No:       5,
+	}
+
+	if err := Create(context.Background(), c.NewTxn(), &testUniqueNullAgain, MutateOptions{CommitNow: true}); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestCreateNotNull(t *testing.T) {
+	c := newDgraphClient()
+	if _, err := CreateSchema(c, &TestUnique{}); err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	testNotNull := TestUnique{
+		Name:     "H3h3",
+		Username: "wildan2711",
+		Email:    "",
+		No:       4,
+	}
+
+	if err := Create(context.Background(), c.NewTxn(), &testNotNull, MutateOptions{CommitNow: true}); err != nil {
+		if nullErr, ok := err.(NotNullError); ok {
+			if nullErr.Field == "email" {
+				return
+			}
+		}
+		t.Error(err)
+	}
 }

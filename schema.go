@@ -40,6 +40,7 @@ type rawSchema struct {
 	Upsert     bool
 	Type       string
 	Unique     bool
+	Notnull    bool
 }
 
 type Schema struct {
@@ -52,6 +53,7 @@ type Schema struct {
 	List      bool
 	Upsert    bool
 	Unique    bool
+	NotNull   bool
 }
 
 func (s Schema) String() string {
@@ -206,6 +208,7 @@ func parseDgraphTag(field *reflect.StructField) (*Schema, error) {
 		schema.Count = dgraphProps.Count
 		schema.Reverse = dgraphProps.Reverse
 		schema.Unique = dgraphProps.Unique
+		schema.NotNull = dgraphProps.Notnull
 
 		if dgraphProps.Type != "" {
 			schema.Type = dgraphProps.Type
