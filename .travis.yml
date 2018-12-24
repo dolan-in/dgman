@@ -5,7 +5,7 @@ sudo: required
 install:
 - curl https://get.dgraph.io -sSf | bash /dev/stdin "-y"
 - curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
-- dep ensure
+- go get -d ./...
 - go get golang.org/x/tools/cmd/cover
 - go get github.com/mattn/goveralls
 before_script:
