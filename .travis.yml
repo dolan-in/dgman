@@ -7,11 +7,11 @@ install:
 - go get golang.org/x/tools/cmd/cover
 - go get github.com/mattn/goveralls
 before_script:
-- go get -t -v ./...
 - dgraph zero &
 - ZERO_PID=$!
 - dgraph alpha --lru_mb 1024 &
 - SERVER_PID=$!
+- go get -t -v ./...
 script:
 - go test -v -covermode=count -coverprofile=coverage.out
 - "$HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci"
