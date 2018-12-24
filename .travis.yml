@@ -1,7 +1,7 @@
+sudo: false
 language: go
 git:
   depth: 50
-sudo: required
 install:
 - curl https://get.dgraph.io -sSf | bash /dev/stdin "-y"
 - go get golang.org/x/tools/cmd/cover
