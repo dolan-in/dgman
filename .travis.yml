@@ -4,6 +4,7 @@ git:
 sudo: required
 install:
 - curl https://get.dgraph.io -sSf | bash /dev/stdin "-y"
+- go get -t -v ./...
 - go get golang.org/x/tools/cmd/cover
 - go get github.com/mattn/goveralls
 before_script:
