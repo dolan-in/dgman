@@ -181,7 +181,7 @@ func TestGetAllUniqueFields(t *testing.T) {
 		t.Error(err)
 	}
 
-	uniqueFields, err := mType.getAllUniqueFields(testUnique)
+	uniqueFields, err := mType.getAllUniqueFields(testUnique, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -337,5 +337,55 @@ func TestCreateNotNull(t *testing.T) {
 			}
 		}
 		t.Error(err)
+	}
+}
+
+func TestUpdate(t *testing.T) {
+	c := newDgraphClient()
+	if _, err := CreateSchema(c, &TestUnique{}); err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	testUniques := []TestUnique{
+		TestUnique{
+			Name:     "haha",
+			Username: "",
+			Email:    "wildan2711@gmail.com",
+			No:       1,
+		},
+		TestUnique{
+			Name:     "haha 2",
+			Username: "wildancok2711",
+			Email:    "wildancok2711@gmail.com",
+			No:       2,
+		},
+	}
+
+	ctx := context.Background()
+	if err := Create(ctx, c.NewTxn(), &testUniques, MutateOptions{CommitNow: true}); err != nil {
+		t.Error(err)
+	}
+
+	testUpdate := testUniques[0]
+	testUpdate.Username = "wildan2711"
+
+	if err := Update(ctx, c.NewTxn(), &testUpdate, MutateOptions{CommitNow: true}); err != nil {
+		t.Error(err)
+	}
+
+	testUpdate2 := testUniques[1]
+	testUpdate2.Username = "wildan2711"
+
+	if err := Update(ctx, c.NewTxn(), &testUpdate2, MutateOptions{CommitNow: true}); err != nil {
+		if uniqueErr, ok := err.(UniqueError); ok {
+			if uniqueErr.Field != "username" {
+				t.Error("wrong unique field")
+			}
+		} else {
+			t.Error(err)
+		}
+	} else {
+		t.Error("must have unique error on username")
 	}
 }

@@ -46,13 +46,15 @@ func (n NotNullError) Error() string {
 }
 
 type mutateType struct {
-	vType  reflect.Type
-	schema map[int]*Schema
+	vType     reflect.Type
+	schema    map[int]*Schema // maps struct index to dgraph schema
+	predIndex map[string]int  // maps predicate struct index
 }
 
 func newMutateType(model interface{}) (*mutateType, error) {
 	mType := &mutateType{}
 	mType.schema = make(map[int]*Schema)
+	mType.predIndex = make(map[string]int)
 
 	vType, err := reflectType(model)
 	if err != nil {
@@ -71,9 +73,18 @@ func newMutateType(model interface{}) (*mutateType, error) {
 		}
 
 		mType.schema[i] = s
+		mType.predIndex[s.Predicate] = i
 	}
 
 	return mType, nil
+}
+
+func (m *mutateType) uidIndex() (int, error) {
+	index, ok := m.predIndex["uid"]
+	if !ok {
+		return -1, fmt.Errorf("uid field is not present in struct")
+	}
+	return index, nil
 }
 
 // saveUID saves the UID to the passed model, field with uid json tag
@@ -84,42 +95,32 @@ func (m *mutateType) saveUID(uids map[string]string, model interface{}) error {
 	}
 
 	if len(uids) == 1 {
-		numFields := m.vType.NumField()
 		// single node, just set the uid
-		for i := 0; i < numFields; i++ {
-			log.Println("here 1")
-			field := val.Field(i)
-			log.Println("here 2")
+		uidIndex, err := m.uidIndex()
+		if err != nil {
+			return err
+		}
 
-			if m.schema[i].Predicate == "uid" {
-				for _, uid := range uids {
-					field.SetString(uid)
-					return nil
-				}
-			}
+		field := val.Field(uidIndex)
+		for _, uid := range uids {
+			field.SetString(uid)
+			return nil
 		}
 	} else if len(uids) > 1 {
 		// passed model was a slice, so multiple nodes
 		// iterate the uid list and set the uid
-		// iterate the fields, find the uid field index
-		numFields := m.vType.NumField()
-		uidIndex := 0
-		for i := 0; i < numFields; i++ {
-			if m.schema[i].Predicate == "uid" {
-				uidIndex = i
-				break
-			}
+		uidIndex, err := m.uidIndex()
+		if err != nil {
+			return err
 		}
 
-		// set uids
-		i := 0
-		for _, uid := range uids {
-			log.Println("here 3")
-			el := val.Index(i)
-			log.Println("here 4")
-			el.Field(uidIndex).SetString(uid)
+		n := len(uids)
+		for i := 0; i < n; i++ {
+			uidAlias := blankUID(i)
+			uid := uids[uidAlias]
 
-			i++
+			el := val.Index(i)
+			el.Field(uidIndex).SetString(uid)
 		}
 	}
 
@@ -165,8 +166,7 @@ func Mutate(ctx context.Context, tx *dgo.Txn, data interface{}, options ...Mutat
 	return mType.saveUID(assigned.Uids, data)
 }
 
-// Create is similar to Mutate, but checks for fields that must be unique for a certain node type
-func Create(ctx context.Context, tx *dgo.Txn, data interface{}, options ...MutateOptions) error {
+func mutateWithConstraints(ctx context.Context, tx *dgo.Txn, data interface{}, update bool, options ...MutateOptions) error {
 	opt := MutateOptions{}
 	if len(options) > 0 {
 		opt = options[0]
@@ -177,7 +177,7 @@ func Create(ctx context.Context, tx *dgo.Txn, data interface{}, options ...Mutat
 		return err
 	}
 
-	if err := mType.constraintChecks(ctx, tx, data); err != nil {
+	if err := mType.constraintChecks(ctx, tx, data, update); err != nil {
 		return err
 	}
 
@@ -186,10 +186,30 @@ func Create(ctx context.Context, tx *dgo.Txn, data interface{}, options ...Mutat
 		return err
 	}
 
-	return mType.saveUID(assigned.Uids, data)
+	// if not update save uid
+	if !update {
+		return mType.saveUID(assigned.Uids, data)
+	}
+
+	return nil
 }
 
-func (m *mutateType) constraintChecks(ctx context.Context, tx *dgo.Txn, data interface{}) error {
+// Create creates a node with field unique checking
+func Create(ctx context.Context, tx *dgo.Txn, data interface{}, options ...MutateOptions) error {
+	return mutateWithConstraints(ctx, tx, data, false, options...)
+}
+
+// Update updates a node by their UID with field unique checking
+func Update(ctx context.Context, tx *dgo.Txn, data interface{}, options ...MutateOptions) error {
+	return mutateWithConstraints(ctx, tx, data, true, options...)
+}
+
+// blankUID generates alias for blank uid from slice index
+func blankUID(index int) string {
+	return fmt.Sprintf("node-%d", index)
+}
+
+func (m *mutateType) constraintChecks(ctx context.Context, tx *dgo.Txn, data interface{}, update bool) error {
 	val, err := reflectValue(data)
 	if err != nil {
 		return err
@@ -201,13 +221,29 @@ func (m *mutateType) constraintChecks(ctx context.Context, tx *dgo.Txn, data int
 	case reflect.Slice:
 		len := val.Len()
 		for i := 0; i < len; i++ {
-			v := val.Index(i).Interface()
-			if err := m.unique(ctx, tx, v); err != nil {
+			v := val.Index(i)
+			if err := m.unique(ctx, tx, v.Interface(), update); err != nil {
 				return err
+			}
+
+			// if not update, uid should be empty, add formatted alias for easy reference
+			if !update {
+				uidIndex, err := m.uidIndex()
+				if err != nil {
+					return err
+				}
+
+				if v.Kind() == reflect.Ptr {
+					v = v.Elem()
+				}
+
+				if v.Field(uidIndex).Interface() == "" {
+					v.Field(uidIndex).SetString("_:" + blankUID(i))
+				}
 			}
 		}
 	case reflect.Struct:
-		if err := m.unique(ctx, tx, data); err != nil {
+		if err := m.unique(ctx, tx, data, update); err != nil {
 			return err
 		}
 	}
@@ -215,15 +251,46 @@ func (m *mutateType) constraintChecks(ctx context.Context, tx *dgo.Txn, data int
 	return nil
 }
 
-func (m *mutateType) unique(ctx context.Context, tx *dgo.Txn, data interface{}) error {
-	uniqueFields, err := m.getAllUniqueFields(data)
+func (m *mutateType) unique(ctx context.Context, tx *dgo.Txn, data interface{}, update bool) error {
+	uniqueFields, err := m.getAllUniqueFields(data, update)
 	if err != nil {
 		return err
 	}
 
-	for field, value := range uniqueFields {
-		if exists(ctx, tx, field, value, data) {
-			return UniqueError{field, value}
+	if update {
+		uidIndex, _ := m.uidIndex()
+		uid := uniqueFields[uidIndex].(string)
+
+		node := reflect.New(m.vType).Interface()
+		if err := GetByUID(ctx, tx, uid, node); err != nil {
+			return err
+		}
+
+		// make sure uid not unique checkd
+		delete(uniqueFields, uidIndex)
+
+		val, err := reflectValue(node)
+		if err != nil {
+			return err
+		}
+
+		uniqueFieldsCopy := make(map[int]interface{})
+		for k, v := range uniqueFields {
+			uniqueFieldsCopy[k] = v
+		}
+
+		// delete all unmodified fields, to avoid unique checking
+		for index := range uniqueFieldsCopy {
+			if val.Field(index).Interface() == uniqueFields[index] {
+				delete(uniqueFields, index)
+			}
+		}
+	}
+
+	for index, value := range uniqueFields {
+		s := m.schema[index]
+		if exists(ctx, tx, s.Predicate, value, data) {
+			return UniqueError{s.Predicate, value}
 		}
 	}
 
@@ -233,7 +300,7 @@ func (m *mutateType) unique(ctx context.Context, tx *dgo.Txn, data interface{}) 
 func exists(ctx context.Context, tx *dgo.Txn, field string, value interface{}, model interface{}) bool {
 	jsonValue, err := json.Marshal(value)
 	if err != nil {
-		log.Println("unmarshal", err)
+		log.Println("marshal", err)
 		return false
 	}
 
@@ -249,14 +316,24 @@ func exists(ctx context.Context, tx *dgo.Txn, field string, value interface{}, m
 
 // getAllUniqueFields gets all values of the fields that has to be unique
 // and also checks for not null constraints
-func (m *mutateType) getAllUniqueFields(data interface{}) (map[string]interface{}, error) {
+func (m *mutateType) getAllUniqueFields(data interface{}, withUID bool) (map[int]interface{}, error) {
 	v, err := reflectValue(data)
 	if err != nil {
 		return nil, err
 	}
-	log.Println(m.vType, v.Type())
+
 	// map all fields that must be unique
-	uniqueValueMap := make(map[string]interface{})
+	uniqueValueMap := make(map[int]interface{})
+	if withUID {
+		// save the uid also
+		uidIndex, err := m.uidIndex()
+		if err != nil {
+			return nil, err
+		}
+
+		uniqueValueMap[uidIndex] = v.Field(uidIndex).Interface()
+	}
+
 	for i := 0; i < m.vType.NumField(); i++ {
 		field := v.Field(i)
 		s := m.schema[i]
@@ -270,7 +347,7 @@ func (m *mutateType) getAllUniqueFields(data interface{}) (map[string]interface{
 				// if not null is not set, don't check for unique if value is null
 				continue
 			}
-			uniqueValueMap[s.Predicate] = val
+			uniqueValueMap[i] = val
 		}
 	}
 	return uniqueValueMap, nil

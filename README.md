@@ -73,7 +73,7 @@ type School struct {
 }
 
 
-// If custom types are used, you need to specity the type in the ScalarType() method
+// If custom types are used, you need to specify the type in the ScalarType() method
 type EnumType int
 
 func (e EnumType) ScalarType() string {
@@ -212,13 +212,69 @@ type User struct {
 
 ```
 
+#### Update (Mutate existing node with Unique Checking)
+
+This is similar to `Create`, but for existing nodes. So the `uid` field must be specified.
+
+```go
+type User struct {
+	UID 		string `json:"uid,omitempty"`
+	Name 		string `json:"name,omitempty"`
+	Email 		string `json:"email,omitempty" dgraph:"index=hash unique"`
+	Username 	string `json:"username,omitempty" dgraph:"index=term unique"`
+}
+
+...
+	users := []User{
+		User{
+			Name: "Alexander",
+			Email: "alexander@gmail.com",
+			Username: "alex123",
+		},
+		User{
+			Name: "Fergusso",
+			Email: "fergusso@gmail.com",
+			Username: "fergusso123",
+		},
+	}
+
+	if err := dgman.Create(context.Background(), c.NewTxn(), &users, dgman.MutateOptions{CommitNow: true}); err != nil {
+		panic(err)
+	}
+	
+	// try to update the user with existing username
+	alexander := users[0]
+	alexander.Username = "fergusso123"
+	// UID should have a value
+	fmt.Println(alexander.UID)
+
+	// will return a dgman.UniqueError
+	if err := dgman.Update(context.Background(), c.NewTxn(), &alexander, dgman.MutateOptions{CommitNow: true}); err != nil {
+		if uniqueErr, ok := err.(dgman.UniqueError); ok {
+			// will return duplicate error for username
+			fmt.Println(uniqueErr.Field, uniqueErr.Value)
+		}
+	}
+
+	// try to update the user with non-existing username
+	alexander.Username = "wildan"
+
+	if err := dgman.Update(context.Background(), c.NewTxn(), &alexander, dgman.MutateOptions{CommitNow: true}); err != nil {
+		panic(err)
+	}
+
+	// should be updated
+	fmt.Println(alexander)
+
+```
+
 ### Query Helpers
 
 #### GetByUID
 
 ```go
 user := User{}
-if err := GetByUID(ctx, tx, "0x9cd5", &user); err != nil {
+if err := dgman.GetByUID(ctx, tx, "0x9cd5", &user); err != nil {
 	if err == dgman.ErrNodeNotFound {
 		// node not found
 	}
@@ -234,7 +290,7 @@ fmt.Println(user)
 user := User{}
 filter := `allofterms(name, "wildan")`
 // get node with node type `user` that matches filter
-if err := GetByUID(ctx, tx, filter, &user); err != nil {
+if err := dgman.GetByUID(ctx, tx, filter, &user); err != nil {
 	if err == dgman.ErrNodeNotFound {
 		// node using the specified filter not found
 	}
@@ -250,7 +306,7 @@ fmt.Println(user)
 users := []User{}
 filter := `allofterms(name, "wildan")`
 // find all nodes with node type `user` that matches the filter
-if err := GetByUID(ctx, tx, filter, &user); err != nil {
+if err := dgman.Find(ctx, tx, filter, &user); err != nil {
 	panic(err)
 }
 
