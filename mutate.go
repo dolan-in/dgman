@@ -316,7 +316,7 @@ func exists(ctx context.Context, tx *dgo.Txn, field string, value interface{}, m
 
 // getAllUniqueFields gets all values of the fields that has to be unique
 // and also checks for not null constraints
-func (m *mutateType) getAllUniqueFields(data interface{}, withUID bool) (map[int]interface{}, error) {
+func (m *mutateType) getAllUniqueFields(data interface{}, update bool) (map[int]interface{}, error) {
 	v, err := reflectValue(data)
 	if err != nil {
 		return nil, err
@@ -324,8 +324,8 @@ func (m *mutateType) getAllUniqueFields(data interface{}, withUID bool) (map[int
 
 	// map all fields that must be unique
 	uniqueValueMap := make(map[int]interface{})
-	if withUID {
-		// save the uid also
+	if update {
+		// if update, save the uid also
 		uidIndex, err := m.uidIndex()
 		if err != nil {
 			return nil, err
@@ -341,8 +341,11 @@ func (m *mutateType) getAllUniqueFields(data interface{}, withUID bool) (map[int
 		if s.Unique {
 			val := field.Interface()
 			if isNull(val) {
-				if s.NotNull {
-					return nil, NotNullError{s.Predicate}
+				// only check not null if not update
+				if !update {
+					if s.NotNull {
+						return nil, NotNullError{s.Predicate}
+					}
 				}
 				// if not null is not set, don't check for unique if value is null
 				continue
@@ -392,7 +395,7 @@ func marshalAndInjectType(data interface{}, disableInject bool) ([]byte, error) 
 // if it doesn't implement it, get it from the struct name and convert to snake case
 func GetNodeType(data interface{}) string {
 	// check if data implements node interface
-	if node, ok := data.(Node); ok {
+	if node, ok := data.(NodeType); ok {
 		return node.NodeType()
 	}
 	// get node type from struct name and convert to snake case

@@ -21,6 +21,7 @@
     - [Mutate](#mutate)
     - [Node Types](#node-types)
     - [Create (Mutate with Unique Checking)](#create-mutate-with-unique-checking)
+    - [Update (Mutate Existing Node with Unique Checking)](#update-mutate-existing-node-with-unique-checking)
   - [Query Helpers](#query-helpers)
     - [GetByUID](#getbyuid)
     - [GetByFilter](#getbyfilter)
@@ -32,10 +33,6 @@
 Using go get:
 
 `go get github.com/dolan-in/dgman`
-
-Using dep:
-
-`dep ensure -add github.com/dolan-in/dgman`
 
 ## Usage 
 

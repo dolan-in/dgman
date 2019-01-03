@@ -42,7 +42,7 @@ func GetByUID(ctx context.Context, tx *dgo.Txn, uid string, model interface{}) e
 		return err
 	}
 
-	return singleResult(resp.Json, model)
+	return Node(resp.Json, model)
 }
 
 // GetByFilter gets a single node by using a Dgraph query filter
@@ -60,7 +60,21 @@ func GetByFilter(ctx context.Context, tx *dgo.Txn, filter string, model interfac
 		return err
 	}
 
-	return singleResult(resp.Json, model)
+	return Node(resp.Json, model)
+}
+
+// GetByQuery gets a single node using a query
+func GetByQuery(ctx context.Context, tx *dgo.Txn, query string, model interface{}) error {
+	nodeType := GetNodeType(model)
+	q := fmt.Sprintf(`{
+		data(func: has(%s)) %s`, nodeType, query)
+
+	resp, err := tx.Query(ctx, q)
+	if err != nil {
+		return err
+	}
+
+	return Node(resp.Json, model)
 }
 
 // Find returns multiple nodes that matches the specified Dgraph query filter,
@@ -77,10 +91,13 @@ func Find(ctx context.Context, tx *dgo.Txn, filter string, model interface{}) er
 		return err
 	}
 
-	return multipleResult(resp.Json, model)
+	return Nodes(resp.Json, model)
 }
 
-func singleResult(jsonData []byte, model interface{}) error {
+// Node marshals a single node to a single object of model,
+// returns error if no nodes are found,
+// query root must be data(func ...)
+func Node(jsonData []byte, model interface{}) error {
 	var result struct {
 		Data []json.RawMessage
 	}
@@ -101,7 +118,9 @@ func singleResult(jsonData []byte, model interface{}) error {
 	return nil
 }
 
-func multipleResult(jsonData []byte, model interface{}) error {
+// Nodes marshals multiple nodes to a slice of model,
+// query root must be data(func ...)
+func Nodes(jsonData []byte, model interface{}) error {
 	var result struct {
 		Data json.RawMessage
 	}

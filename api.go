@@ -17,7 +17,7 @@
 package dgman
 
 // Node is an interface for passing node types
-type Node interface {
+type NodeType interface {
 	NodeType() string
 }
 
