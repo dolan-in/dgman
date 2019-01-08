@@ -48,6 +48,7 @@ func (n NotNullError) Error() string {
 
 type mutateType struct {
 	vType     reflect.Type
+	value     *reflect.Value
 	schema    map[int]*Schema // maps struct index to dgraph schema
 	predIndex map[string]int  // maps predicate struct index
 }
@@ -63,6 +64,13 @@ func newMutateType(model interface{}) (*mutateType, error) {
 	}
 
 	mType.vType = vType
+
+	value, err := reflectValue(model)
+	if err != nil {
+		return nil, err
+	}
+
+	mType.value = value
 
 	numFields := vType.NumField()
 	for i := 0; i < numFields; i++ {
@@ -90,33 +98,17 @@ func (m *mutateType) uidIndex() (int, error) {
 
 // saveUID saves the UID to the passed model, field with uid json tag
 func (m *mutateType) saveUID(uids map[string]string, model interface{}) error {
-	val, err := reflectValue(model)
+	val := m.value
+
+	uidIndex, err := m.uidIndex()
 	if err != nil {
 		return err
 	}
 
-	if len(uids) == 1 {
-		// single node, just set the uid
-		uidIndex, err := m.uidIndex()
-		if err != nil {
-			return err
-		}
-
-		field := val.Field(uidIndex)
-		for _, uid := range uids {
-			field.SetString(uid)
-			return nil
-		}
-	} else if len(uids) > 1 {
-		// passed model was a slice, so multiple nodes
-		// iterate the uid list and set the uid
-		uidIndex, err := m.uidIndex()
-		if err != nil {
-			return err
-		}
-
+	switch val.Type().Kind() {
+	case reflect.Slice:
 		n := len(uids)
-		for i := 0; i < n; i++ {
+		for i := 0; i < n && i < val.Len(); i++ {
 			uidAlias := blankUID(i)
 			uid := uids[uidAlias]
 
@@ -127,6 +119,15 @@ func (m *mutateType) saveUID(uids map[string]string, model interface{}) error {
 			}
 
 			el.Field(uidIndex).SetString(uid)
+		}
+	case reflect.Struct:
+		field := val.Field(uidIndex)
+		for _, uid := range uids {
+			if field.Kind() == reflect.String && field.CanSet() {
+				field.SetString(uid)
+				return nil
+			}
+			return fmt.Errorf("uid field is not a string or can't set")
 		}
 	}
 
@@ -216,18 +217,13 @@ func blankUID(index int) string {
 }
 
 func (m *mutateType) constraintChecks(ctx context.Context, tx *dgo.Txn, data interface{}, update bool) error {
-	val, err := reflectValue(data)
-	if err != nil {
-		return err
-	}
-
-	modelType := val.Type()
+	modelType := m.value.Type()
 
 	switch modelType.Kind() {
 	case reflect.Slice:
-		len := val.Len()
+		len := m.value.Len()
 		for i := 0; i < len; i++ {
-			v := val.Index(i)
+			v := m.value.Index(i)
 			if err := m.unique(ctx, tx, v.Interface(), update); err != nil {
 				return err
 			}
