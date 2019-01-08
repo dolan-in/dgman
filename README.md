@@ -287,7 +287,29 @@ fmt.Println(user)
 user := User{}
 filter := `allofterms(name, "wildan")`
 // get node with node type `user` that matches filter
-if err := dgman.GetByUID(ctx, tx, filter, &user); err != nil {
+if err := dgman.GetByFilter(ctx, tx, filter, &user); err != nil {
+	if err == dgman.ErrNodeNotFound {
+		// node using the specified filter not found
+	}
+}
+
+// struct will be populated if found
+fmt.Println(user)
+```
+
+### GetByQuery
+
+```go
+user := User{}
+query := `@filter(allofterms(name, "wildan")) {
+	uid
+	expand(_all_) {
+		uid
+		expand(_all_)
+	}
+}`
+// get node with node type `user` that matches filter
+if err := dgman.GetByQuery(ctx, tx, query, &user); err != nil {
 	if err == dgman.ErrNodeNotFound {
 		// node using the specified filter not found
 	}

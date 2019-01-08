@@ -92,8 +92,8 @@ func TestMarshalSchema(t *testing.T) {
 	assert.Equal(t, "school: string .", schema["school"].String())
 	assert.Equal(t, "status: int .", schema["status"].String())
 	assert.Equal(t, "height: int .", schema["height"].String())
-	assert.Equal(t, "dob: dateTime .", schema["dob"].String())
-	assert.Equal(t, "created: dateTime .", schema["created"].String())
+	assert.Equal(t, "dob: datetime .", schema["dob"].String())
+	assert.Equal(t, "created: datetime .", schema["created"].String())
 	assert.Equal(t, "user: string .", schema["user"].String())
 	assert.Equal(t, "location: geo .", schema["location"].String())
 }

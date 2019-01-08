@@ -36,7 +36,7 @@ type TestCustomNode struct {
 
 type TestUnique struct {
 	UID        string `json:"uid,omitempty"`
-	Name       string `json:"name,omitempty"`
+	Name       string `json:"name,omitempty" dgraph:"index=term"`
 	Username   string `json:"username,omitempty" dgraph:"index=term unique"`
 	Email      string `json:"email,omitempty" dgraph:"index=term unique notnull"`
 	No         int    `json:"no,omitempty" dgraph:"index=int unique"`
@@ -189,20 +189,20 @@ func TestGetAllUniqueFields(t *testing.T) {
 }
 
 func TestCreate(t *testing.T) {
-	testUnique := []TestUnique{
-		TestUnique{
+	testUnique := []*TestUnique{
+		&TestUnique{
 			Name:     "H3h3",
 			Username: "wildan",
 			Email:    "wildan2711@gmail.com",
 			No:       1,
 		},
-		TestUnique{
+		&TestUnique{
 			Name:     "PooDiePie",
 			Username: "wildansyah",
 			Email:    "wildansyah2711@gmail.com",
 			No:       2,
 		},
-		TestUnique{
+		&TestUnique{
 			Name:     "Poopsie",
 			Username: "wildani",
 			Email:    "wildani@gmail.com",
@@ -232,20 +232,20 @@ func TestCreate(t *testing.T) {
 		}
 	}
 
-	testDuplicate := []TestUnique{
-		TestUnique{
+	testDuplicate := []*TestUnique{
+		&TestUnique{
 			Name:     "H3h3",
 			Username: "wildanjing",
 			Email:    "wildan2711@gmail.com",
 			No:       4,
 		},
-		TestUnique{
+		&TestUnique{
 			Name:     "PooDiePie",
 			Username: "wildansyah",
 			Email:    "wildanodol2711@gmail.com",
 			No:       5,
 		},
-		TestUnique{
+		&TestUnique{
 			Name:     "lalap",
 			Username: "lalap",
 			Email:    "lalap@gmail.com",
@@ -257,7 +257,7 @@ func TestCreate(t *testing.T) {
 
 	var duplicates []UniqueError
 	for _, data := range testDuplicate {
-		err := Create(context.Background(), tx, &data)
+		err := Create(context.Background(), tx, data)
 		if err != nil {
 			if uniqueError, ok := err.(UniqueError); ok {
 				duplicates = append(duplicates, uniqueError)
@@ -347,14 +347,14 @@ func TestUpdate(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	testUniques := []TestUnique{
-		TestUnique{
+	testUniques := []*TestUnique{
+		&TestUnique{
 			Name:     "haha",
 			Username: "",
 			Email:    "wildan2711@gmail.com",
 			No:       1,
 		},
-		TestUnique{
+		&TestUnique{
 			Name:     "haha 2",
 			Username: "wildancok2711",
 			Email:    "wildancok2711@gmail.com",
@@ -370,14 +370,14 @@ func TestUpdate(t *testing.T) {
 	testUpdate := testUniques[0]
 	testUpdate.Username = "wildan2711"
 
-	if err := Update(ctx, c.NewTxn(), &testUpdate, MutateOptions{CommitNow: true}); err != nil {
+	if err := Update(ctx, c.NewTxn(), testUpdate, MutateOptions{CommitNow: true}); err != nil {
 		t.Error(err)
 	}
 
 	testUpdate2 := testUniques[1]
 	testUpdate2.Username = "wildan2711"
 
-	if err := Update(ctx, c.NewTxn(), &testUpdate2, MutateOptions{CommitNow: true}); err != nil {
+	if err := Update(ctx, c.NewTxn(), testUpdate2, MutateOptions{CommitNow: true}); err != nil {
 		if uniqueErr, ok := err.(UniqueError); ok {
 			if uniqueErr.Field != "username" {
 				t.Error("wrong unique field")

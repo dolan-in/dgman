@@ -124,8 +124,9 @@ func marshalSchema(initSchemaMap SchemaMap, models ...interface{}) SchemaMap {
 			}
 
 			schema, _ := schemaMap[s.Predicate]
-			// don't parse struct composition fields (empty name), don't need to parse uid
-			if s.Predicate != "" && s.Predicate != "uid" {
+			// don't parse struct composition fields (empty name), don't need to parse uid, don't parse facets
+			parse := s.Predicate != "" && s.Predicate != "uid" && !strings.Contains(s.Predicate, "|")
+			if parse {
 				// edge
 				if s.Type == "uid" {
 					// traverse node
@@ -163,7 +164,7 @@ func getSchemaType(fieldType reflect.Type) string {
 	case reflect.Struct:
 		switch fieldType.PkgPath() {
 		case "time":
-			schemaType = "dateTime"
+			schemaType = "datetime"
 		}
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
@@ -229,6 +230,10 @@ func reflectType(model interface{}) (reflect.Type, error) {
 		// if pointer to slice
 		if current.Kind() == reflect.Slice {
 			current = current.Elem()
+
+			if current.Kind() == reflect.Ptr {
+				current = current.Elem()
+			}
 		}
 	}
 
