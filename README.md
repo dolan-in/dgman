@@ -8,6 +8,7 @@
 ## Features
 - Create schemas and indexes from struct tags.
 - Detect conflicts from existing schema and defined schema.
+- Mutate Helpers (Create, Update)
 - Autoinject [node type](https://docs.dgraph.io/howto/#giving-nodes-a-type) from struct.
 - Field unique checking (e.g: emails, username).
 - Query helpers.
@@ -25,6 +26,7 @@
   - [Query Helpers](#query-helpers)
     - [GetByUID](#getbyuid)
     - [GetByFilter](#getbyfilter)
+	- [GetByQuery](#getbyquery)
     - [Find](#find)
 - [TODO](#todo)
 
