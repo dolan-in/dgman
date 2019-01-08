@@ -29,12 +29,13 @@ import (
 
 // UniqueError returns the field and value that failed the unique node check
 type UniqueError struct {
-	Field string
-	Value interface{}
+	NodeType string
+	Field    string
+	Value    interface{}
 }
 
 func (u UniqueError) Error() string {
-	return fmt.Sprintf("%s %v already exists\n", u.Field, u.Value)
+	return fmt.Sprintf("%s with %s %v already exists\n", u.NodeType, u.Field, u.Value)
 }
 
 type NotNullError struct {
@@ -120,6 +121,11 @@ func (m *mutateType) saveUID(uids map[string]string, model interface{}) error {
 			uid := uids[uidAlias]
 
 			el := val.Index(i)
+
+			if el.Kind() == reflect.Ptr {
+				el = el.Elem()
+			}
+
 			el.Field(uidIndex).SetString(uid)
 		}
 	}
@@ -289,29 +295,31 @@ func (m *mutateType) unique(ctx context.Context, tx *dgo.Txn, data interface{}, 
 
 	for index, value := range uniqueFields {
 		s := m.schema[index]
-		if exists(ctx, tx, s.Predicate, value, data) {
-			return UniqueError{s.Predicate, value}
+		if exist, err := exists(ctx, tx, s.Predicate, value, data); exist {
+			nodeType := GetNodeType(data)
+			return UniqueError{nodeType, s.Predicate, value}
+		} else if err != nil {
+			return err
 		}
 	}
 
 	return nil
 }
 
-func exists(ctx context.Context, tx *dgo.Txn, field string, value interface{}, model interface{}) bool {
+func exists(ctx context.Context, tx *dgo.Txn, field string, value interface{}, model interface{}) (bool, error) {
 	jsonValue, err := json.Marshal(value)
 	if err != nil {
-		log.Println("marshal", err)
-		return false
+		return false, err
 	}
 
 	filter := fmt.Sprintf(`eq(%s, %s)`, field, jsonValue)
 	if err := GetByFilter(ctx, tx, filter, model); err != nil {
-		if err != ErrNodeNotFound {
-			log.Println("check exist", err)
+		if err == ErrNodeNotFound {
+			return false, nil
 		}
-		return false
+		return false, err
 	}
-	return true
+	return true, nil
 }
 
 // getAllUniqueFields gets all values of the fields that has to be unique
@@ -411,7 +419,13 @@ func GetNodeType(data interface{}) string {
 		case reflect.Struct:
 			structName = dataType.Name()
 		case reflect.Ptr, reflect.Slice:
-			structName = dataType.Elem().Name()
+			elem := dataType.Elem()
+
+			if elem.Kind() == reflect.Ptr {
+				elem = elem.Elem()
+			}
+
+			structName = elem.Name()
 		}
 	}
 	return toSnakeCase(structName)

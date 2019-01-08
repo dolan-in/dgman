@@ -33,6 +33,7 @@ var (
 func GetByUID(ctx context.Context, tx *dgo.Txn, uid string, model interface{}) error {
 	query := fmt.Sprintf(`{
 		data(func: uid(%s)) {
+			uid
 			expand(_all_)
 		}
 	}`, uid)
@@ -51,6 +52,7 @@ func GetByFilter(ctx context.Context, tx *dgo.Txn, filter string, model interfac
 	nodeType := GetNodeType(model)
 	query := fmt.Sprintf(`{
 		data(func: has(%s)) @filter(%s) {
+			uid
 			expand(_all_)
 		}
 	}`, nodeType, filter)
@@ -67,7 +69,8 @@ func GetByFilter(ctx context.Context, tx *dgo.Txn, filter string, model interfac
 func GetByQuery(ctx context.Context, tx *dgo.Txn, query string, model interface{}) error {
 	nodeType := GetNodeType(model)
 	q := fmt.Sprintf(`{
-		data(func: has(%s)) %s`, nodeType, query)
+		data(func: has(%s)) %s 
+	}`, nodeType, query)
 
 	resp, err := tx.Query(ctx, q)
 	if err != nil {
@@ -83,6 +86,7 @@ func Find(ctx context.Context, tx *dgo.Txn, filter string, model interface{}) er
 	nodeType := GetNodeType(model)
 	query := fmt.Sprintf(`{
 		data(func: has(%s)) @filter(%s) {
+			uid
 			expand(_all_)
 		}
 	}`, nodeType, filter)

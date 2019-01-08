@@ -24,11 +24,17 @@ import (
 )
 
 type TestModel struct {
-	UID     string `json:"uid"`
-	Name    string `json:"name" dgraph:"index=term"`
-	Address string `json:"address"`
-	Age     int    `json:"age"`
-	Dead    bool   `json:"dead"`
+	UID     string     `json:"uid"`
+	Name    string     `json:"name" dgraph:"index=term"`
+	Address string     `json:"address"`
+	Age     int        `json:"age"`
+	Dead    bool       `json:"dead"`
+	Edges   []TestEdge `json:"edges"`
+}
+
+type TestEdge struct {
+	UID   string `json:"uid"`
+	Level string `json"level"`
 }
 
 func TestGetByUID(t *testing.T) {
@@ -138,4 +144,65 @@ func TestFind(t *testing.T) {
 	}
 
 	assert.Len(t, dst, 2)
+}
+
+func TestGetByQuery(t *testing.T) {
+	source := TestModel{
+		Name:    "wildan anjing",
+		Address: "Beverly Hills",
+		Age:     17,
+	}
+
+	c := newDgraphClient()
+	if _, err := CreateSchema(c, &TestModel{}); err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	tx := c.NewTxn()
+
+	ctx := context.Background()
+
+	err := Create(ctx, tx, &source)
+	if err != nil {
+		t.Error(err)
+	}
+	tx.Commit(ctx)
+
+	source2 := TestEdge{
+		Level: "one",
+	}
+
+	tx = c.NewTxn()
+	err = Create(ctx, tx, &source2)
+	if err != nil {
+		t.Error(err)
+	}
+	tx.Commit(ctx)
+
+	source.Edges = []TestEdge{source2}
+
+	tx = c.NewTxn()
+	err = Mutate(ctx, tx, &source)
+	if err != nil {
+		t.Error(err)
+	}
+	tx.Commit(ctx)
+
+	var dst TestModel
+	tx = c.NewTxn()
+	if err := GetByQuery(ctx, tx, `@filter(allofterms(name, "wildan")) {
+		uid
+		expand(_all_) {
+			uid
+			expand(_all_)
+		}
+	}`, &dst); err != nil {
+		t.Error(err)
+	}
+
+	assert.Equal(t, dst.UID, source.UID)
+	assert.Len(t, dst.Edges, 1)
+	assert.Equal(t, dst.Edges[0].UID, source2.UID)
+	assert.Equal(t, dst.Edges[0].Level, source2.Level)
 }
