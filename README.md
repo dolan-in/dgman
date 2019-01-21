@@ -18,6 +18,8 @@
 - [Installation](#installation)
 - [Usage](#usage)
   - [Schema Definition](#schema-definition)
+    - [CreateSchema](#createschema)
+    - [MutateSchema](#mutateschema)
   - [Mutate Helpers](#mutate-helpers)
     - [Mutate](#mutate)
     - [Node Types](#node-types)
@@ -26,7 +28,7 @@
   - [Query Helpers](#query-helpers)
     - [GetByUID](#getbyuid)
     - [GetByFilter](#getbyfilter)
-	- [GetByQuery](#getbyquery)
+    - [GetByQuery](#getbyquery)
     - [Find](#find)
 - [TODO](#todo)
 
@@ -46,7 +48,11 @@ import(
 
 ### Schema Definition
 
-Schemas are defined using Go structs which defines the predicate name from the `json` tag, indices and directives using the `dgraph` tag. Using the `CreateSchema` function, it will install the schema, and detect schema and index conflicts within the passed structs and with the currently existing schema in the specified Dgraph database.
+Schemas are defined using Go structs which defines the predicate name from the `json` tag, indices and directives using the `dgraph` tag.
+
+#### CreateSchema
+
+Using the `CreateSchema` function, it will install the schema, and detect schema and index conflicts within the passed structs and with the currently existing schema in the specified Dgraph database.
 
 ```go
 // User is a node, nodes have a uid field
@@ -124,6 +130,18 @@ name: string @index(term) .
 ```
 
 When schema conflicts is detected with the existing schema already installed in the database, it will only log the differences. You would need to manually correct the conflicts by dropping or updating the schema manually.
+
+#### MutateSchema
+
+To overwrite/update index definitions, you can use the `MutateSchema` function, which will update the schema indexes.
+
+	// update the schema indexes
+	schema, err := dgman.MutateSchema(c, &User{})
+	if err != nil {
+		panic(err)
+	}
+	// Check the generated schema
+	fmt.Println(schema)
 
 ### Mutate Helpers
 
