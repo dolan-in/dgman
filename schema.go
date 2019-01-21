@@ -84,14 +84,6 @@ func (s SchemaMap) String() string {
 	return schemaDef
 }
 
-func (s SchemaMap) Len() int {
-	l := 0
-	for range s {
-		l++
-	}
-	return l
-}
-
 func marshalSchema(initSchemaMap SchemaMap, models ...interface{}) SchemaMap {
 	// schema map maps predicates to its index/schema definition
 	// to make sure it is unique
@@ -129,9 +121,14 @@ func marshalSchema(initSchemaMap SchemaMap, models ...interface{}) SchemaMap {
 			if parse {
 				// edge
 				if s.Type == "uid" {
+					edgeType := field.Type
+
+					if edgeType.Kind() == reflect.Ptr {
+						edgeType = edgeType.Elem()
+					}
 					// traverse node
-					edgePtr := reflect.New(field.Type.Elem())
-					marshalSchema(schemaMap, edgePtr.Elem().Interface())
+					edgePtr := reflect.New(edgeType)
+					marshalSchema(schemaMap, edgePtr.Interface())
 				}
 
 				if schema != nil && schema.String() != s.String() {
@@ -155,16 +152,29 @@ func getSchemaType(fieldType reflect.Type) string {
 	switch fieldType.Kind() {
 	case reflect.Slice:
 		sliceType := fieldType.Elem()
-		if sliceType.Kind() == reflect.Struct {
-			// assume is edge
-			schemaType = "uid"
-		} else {
+
+		if sliceType.Kind() == reflect.Ptr {
+			sliceType = sliceType.Elem()
+		}
+
+		switch sliceType.Kind() {
+		case reflect.Struct:
+			if sliceType.PkgPath() == "time" {
+				schemaType = "[datetime]"
+			} else {
+				// assume is edge
+				schemaType = "uid"
+			}
+		default:
 			schemaType = fmt.Sprintf("[%s]", sliceType.Name())
 		}
 	case reflect.Struct:
 		switch fieldType.PkgPath() {
 		case "time":
 			schemaType = "datetime"
+		default:
+			// need proper handling
+			schemaType = "uid"
 		}
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
@@ -331,4 +341,17 @@ func CreateSchema(c *dgo.Dgraph, models ...interface{}) (*SchemaMap, error) {
 		}
 	}
 	return &definedSchema, err
+}
+
+// MutateSchema generate indexes and schema from struct models,
+// attempt updates for schema and indexes.
+func MutateSchema(c *dgo.Dgraph, models ...interface{}) (*SchemaMap, error) {
+	definedSchema := marshalSchema(nil, models...)
+
+	if len(definedSchema) > 0 {
+		if err := c.Alter(context.Background(), &api.Operation{Schema: definedSchema.String()}); err != nil {
+			return nil, err
+		}
+	}
+	return &definedSchema, nil
 }
