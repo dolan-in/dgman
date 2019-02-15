@@ -22,81 +22,14 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/dgraph-io/dgo/protos/api"
+
 	"github.com/dgraph-io/dgo"
 )
 
 var (
 	ErrNodeNotFound = errors.New("node not found")
 )
-
-// GetByUID gets a single node by their UID and returns the value to the passed model struct
-func GetByUID(ctx context.Context, tx *dgo.Txn, uid string, model interface{}) error {
-	query := fmt.Sprintf(`{
-		data(func: uid(%s)) {
-			uid
-			expand(_all_)
-		}
-	}`, uid)
-
-	resp, err := tx.Query(ctx, query)
-	if err != nil {
-		return err
-	}
-
-	return Node(resp.Json, model)
-}
-
-// GetByFilter gets a single node by using a Dgraph query filter
-// and returns the single value to the passed model struct
-func GetByFilter(ctx context.Context, tx *dgo.Txn, filter string, model interface{}) error {
-	nodeType := GetNodeType(model)
-	query := fmt.Sprintf(`{
-		data(func: has(%s)) @filter(%s) {
-			uid
-			expand(_all_)
-		}
-	}`, nodeType, filter)
-
-	resp, err := tx.Query(ctx, query)
-	if err != nil {
-		return err
-	}
-
-	return Node(resp.Json, model)
-}
-
-// GetByQuery gets a single node using a query
-func GetByQuery(ctx context.Context, tx *dgo.Txn, query string, model interface{}) error {
-	nodeType := GetNodeType(model)
-	q := fmt.Sprintf(`{
-		data(func: has(%s)) %s 
-	}`, nodeType, query)
-
-	resp, err := tx.Query(ctx, q)
-	if err != nil {
-		return err
-	}
-
-	return Node(resp.Json, model)
-}
-
-// Find returns multiple nodes that matches the specified Dgraph query filter,
-// the passed model must be a pointer to a slice
-func Find(ctx context.Context, tx *dgo.Txn, filter string, model interface{}) error {
-	nodeType := GetNodeType(model)
-	query := fmt.Sprintf(`{
-		data(func: has(%s)) @filter(%s) {
-			uid
-			expand(_all_)
-		}
-	}`, nodeType, filter)
-	resp, err := tx.Query(ctx, query)
-	if err != nil {
-		return err
-	}
-
-	return Nodes(resp.Json, model)
-}
 
 // Node marshals a single node to a single object of model,
 // returns error if no nodes are found,
@@ -138,4 +71,131 @@ func Nodes(jsonData []byte, model interface{}) error {
 	}
 
 	return nil
+}
+
+type Query struct {
+	ctx         context.Context
+	tx          *dgo.Txn
+	model       interface{}
+	queryString string
+	paramString string
+	vars        map[string]string
+	first       int
+	offset      int
+	after       string
+}
+
+func (q *Query) Query(query string) *Query {
+	q.queryString = query
+	return q
+}
+
+func (q *Query) Filter(filter string) *Query {
+	q.queryString = fmt.Sprintf(`@filter(%s) {
+		uid
+		expand(_all_)
+	}`, filter)
+	return q
+}
+
+func (q *Query) UID(uid string) error {
+	query := fmt.Sprintf(`{
+		data(func: uid(%s)) {
+			uid
+			expand(_all_)
+		}
+	}`, uid)
+
+	resp, err := q.tx.Query(q.ctx, query)
+	if err != nil {
+		return err
+	}
+
+	return Node(resp.Json, q.model)
+}
+
+func (q *Query) Vars(funcDef string, vars map[string]string) *Query {
+	q.paramString = funcDef
+	q.vars = vars
+	return q
+}
+
+func (q *Query) First(n int) *Query {
+	q.first = n
+	return q
+}
+
+func (q *Query) Offset(n int) *Query {
+	q.offset = n
+	return q
+}
+
+func (q *Query) After(uid string) *Query {
+	q.after = uid
+	return q
+}
+
+func (q *Query) Node() (err error) {
+	result, err := q.executeQuery()
+	if err != nil {
+		return err
+	}
+	return Node(result, q.model)
+}
+
+func (q *Query) Nodes() error {
+	result, err := q.executeQuery()
+	if err != nil {
+		return err
+	}
+	return Nodes(result, q.model)
+}
+
+func (q *Query) String() string {
+	query := ""
+	if q.vars != nil {
+		query = "query " + q.paramString
+	}
+
+	nodeType := GetNodeType(q.model)
+	query += fmt.Sprintf(`{
+	data(func: has(%s)`, nodeType)
+
+	if q.first != 0 {
+		query += fmt.Sprintf(", first: %d", q.first)
+	}
+
+	if q.offset != 0 {
+		query += fmt.Sprintf(", offset: %d", q.offset)
+	}
+
+	if q.after != "" {
+		query += fmt.Sprintf(", after: %s", q.after)
+	}
+
+	query += fmt.Sprintf(`) %s
+}`, q.queryString)
+
+	return query
+}
+
+func (q *Query) executeQuery() (result []byte, err error) {
+	queryString := q.String()
+
+	var resp *api.Response
+	if q.vars != nil {
+		resp, err = q.tx.QueryWithVars(q.ctx, queryString, q.vars)
+	} else {
+		resp, err = q.tx.Query(q.ctx, queryString)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.Json, nil
+}
+
+// Get
+func Get(ctx context.Context, tx *dgo.Txn, model interface{}) *Query {
+	return &Query{ctx: ctx, tx: tx, model: model}
 }

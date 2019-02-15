@@ -264,7 +264,7 @@ func (m *mutateType) unique(ctx context.Context, tx *dgo.Txn, data interface{}, 
 		uid := uniqueFields[uidIndex].(string)
 
 		node := reflect.New(m.vType).Interface()
-		if err := GetByUID(ctx, tx, uid, node); err != nil {
+		if err := Get(ctx, tx, node).UID(uid); err != nil {
 			return err
 		}
 
@@ -309,7 +309,7 @@ func exists(ctx context.Context, tx *dgo.Txn, field string, value interface{}, m
 	}
 
 	filter := fmt.Sprintf(`eq(%s, %s)`, field, jsonValue)
-	if err := GetByFilter(ctx, tx, filter, model); err != nil {
+	if err := Get(ctx, tx, model).Filter(filter).Node(); err != nil {
 		if err == ErrNodeNotFound {
 			return false, nil
 		}

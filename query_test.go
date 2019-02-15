@@ -18,6 +18,7 @@ package dgman
 
 import (
 	"context"
+	"log"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -58,7 +59,7 @@ func TestGetByUID(t *testing.T) {
 
 	dst := &TestModel{}
 	tx = c.NewTxn()
-	if err := GetByUID(ctx, tx, source.UID, dst); err != nil {
+	if err := Get(ctx, tx, dst).UID(source.UID); err != nil {
 		t.Error(err)
 	}
 
@@ -92,7 +93,7 @@ func TestGetByFilter(t *testing.T) {
 
 	dst := &TestModel{}
 	tx = c.NewTxn()
-	if err := GetByFilter(ctx, tx, `allofterms(name, "wildan")`, dst); err != nil {
+	if err := Get(ctx, tx, dst).Filter(`allofterms(name, "wildan")`).Node(); err != nil {
 		t.Error(err)
 	}
 
@@ -139,7 +140,7 @@ func TestFind(t *testing.T) {
 
 	var dst []TestModel
 	tx = c.NewTxn()
-	if err := Find(ctx, tx, `allofterms(name, "wildan")`, &dst); err != nil {
+	if err := Get(ctx, tx, &dst).Filter(`allofterms(name, "wildan")`).Nodes(); err != nil {
 		t.Error(err)
 	}
 
@@ -191,13 +192,15 @@ func TestGetByQuery(t *testing.T) {
 
 	var dst TestModel
 	tx = c.NewTxn()
-	if err := GetByQuery(ctx, tx, `@filter(allofterms(name, "wildan")) {
+	q := Get(ctx, tx, &dst).Query(`@filter(allofterms(name, "wildan")) {
 		uid
 		expand(_all_) {
 			uid
 			expand(_all_)
 		}
-	}`, &dst); err != nil {
+	}`)
+	log.Println(q)
+	if err := q.Node(); err != nil {
 		t.Error(err)
 	}
 
