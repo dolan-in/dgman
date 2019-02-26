@@ -29,7 +29,7 @@
     - [Get by UID](#get-by-uid)
     - [Get by Filter](#get-by-filter)
     - [Get by Query](#get-by-query)
-	- [Delete Helper](#delete-helper)
+  - [Delete Helper](#delete-helper)
 
 ## Installation
 
@@ -347,7 +347,7 @@ if err != nil {
 fmt.Println(users)
 ```
 
-### Delete Helper
+## Delete Helper
 
 Delete helpers can be used to simplify deleting nodes that matches a query, using the same query format as [Query Helpers](#query-helpers).
 
