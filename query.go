@@ -17,10 +17,14 @@
 package dgman
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/dgraph-io/dgo/protos/api"
 
 	"github.com/dgraph-io/dgo"
 )
@@ -29,113 +33,225 @@ var (
 	ErrNodeNotFound = errors.New("node not found")
 )
 
-// GetByUID gets a single node by their UID and returns the value to the passed model struct
-func GetByUID(ctx context.Context, tx *dgo.Txn, uid string, model interface{}) error {
-	query := fmt.Sprintf(`{
-		data(func: uid(%s)) {
+type order struct {
+	descending bool
+	clause     string
+}
+
+type Query struct {
+	ctx         context.Context
+	tx          *dgo.Txn
+	model       interface{}
+	queryString string
+	paramString string
+	vars        map[string]string
+	first       int
+	offset      int
+	after       string
+	order       []order
+}
+
+// Query defines the query portion other than the root function
+func (q *Query) Query(query string) *Query {
+	q.queryString = query
+	return q
+}
+
+// Filter defines a query filter, return predicates at the first depth
+func (q *Query) Filter(filter string) *Query {
+	q.queryString = `@filter(` + filter + `) {
+		uid
+		expand(_all_)
+	}`
+	return q
+}
+
+// UID returns the node with the specified uid
+func (q *Query) UID(uid string) error {
+	query := `{
+		data(func: uid(` + uid + `)) {
 			uid
 			expand(_all_)
 		}
-	}`, uid)
+	}`
 
-	resp, err := tx.Query(ctx, query)
+	resp, err := q.tx.Query(q.ctx, query)
 	if err != nil {
 		return err
 	}
 
-	return Node(resp.Json, model)
+	return Node(resp.Json, q.model)
 }
 
-// GetByFilter gets a single node by using a Dgraph query filter
-// and returns the single value to the passed model struct
-func GetByFilter(ctx context.Context, tx *dgo.Txn, filter string, model interface{}) error {
-	nodeType := GetNodeType(model)
-	query := fmt.Sprintf(`{
-		data(func: has(%s)) @filter(%s) {
-			uid
-			expand(_all_)
+// All returns all nodes of the specified node type (from model)
+func (q *Query) All() *Query {
+	q.queryString = `{
+		uid
+		expand(_all_)
+	}`
+	return q
+}
+
+// Vars specify the GraphQL variables to be passed on the query,
+// by specifying the function definition of vars, and variable map.
+// Example funcDef: getUserByEmail($email: string)
+func (q *Query) Vars(funcDef string, vars map[string]string) *Query {
+	q.paramString = funcDef
+	q.vars = vars
+	return q
+}
+
+func (q *Query) First(n int) *Query {
+	q.first = n
+	return q
+}
+
+func (q *Query) Offset(n int) *Query {
+	q.offset = n
+	return q
+}
+
+func (q *Query) After(uid string) *Query {
+	q.after = uid
+	return q
+}
+
+func (q *Query) OrderAsc(clause string) *Query {
+	q.order = append(q.order, order{clause: clause})
+	return q
+}
+
+func (q *Query) OrderDesc(clause string) *Query {
+	q.order = append(q.order, order{descending: true, clause: clause})
+	return q
+}
+
+// Node returns the first single node from the query
+func (q *Query) Node() (err error) {
+	// make sure only 1 node is return
+	q.first = 1
+
+	result, err := q.executeQuery()
+	if err != nil {
+		return err
+	}
+	return Node(result, q.model)
+}
+
+// Nodes returns all results from the query
+func (q *Query) Nodes() error {
+	result, err := q.executeQuery()
+	if err != nil {
+		return err
+	}
+	return Nodes(result, q.model)
+}
+
+func (q *Query) String() string {
+	var queryBuf bytes.Buffer
+	if q.vars != nil {
+		queryBuf.WriteString("query ")
+		queryBuf.WriteString(q.paramString)
+	}
+
+	nodeType := GetNodeType(q.model)
+	queryBuf.WriteString("{\n\tdata(func: has(")
+	queryBuf.WriteString(nodeType)
+	queryBuf.WriteByte(')')
+
+	if q.first != 0 {
+		queryBuf.WriteString(", first: ")
+		queryBuf.Write(intToBytes(q.first))
+	}
+
+	if q.offset != 0 {
+		queryBuf.WriteString(", offset: ")
+		queryBuf.Write(intToBytes(q.offset))
+	}
+
+	if q.after != "" {
+		queryBuf.WriteString(", after: ")
+		queryBuf.WriteString(q.after)
+	}
+
+	if len(q.order) > 0 {
+		for _, order := range q.order {
+			orderStr := ", orderasc: "
+			if order.descending {
+				orderStr = ", orderdesc: "
+			}
+			queryBuf.WriteString(orderStr)
+			queryBuf.WriteString(order.clause)
 		}
-	}`, nodeType, filter)
-
-	resp, err := tx.Query(ctx, query)
-	if err != nil {
-		return err
 	}
 
-	return Node(resp.Json, model)
+	if q.queryString == "" {
+		q.All()
+	}
+
+	queryBuf.WriteString(") ")
+	queryBuf.WriteString(q.queryString)
+	queryBuf.WriteString(" \n}")
+
+	return queryBuf.String()
 }
 
-// GetByQuery gets a single node using a query
-func GetByQuery(ctx context.Context, tx *dgo.Txn, query string, model interface{}) error {
-	nodeType := GetNodeType(model)
-	q := fmt.Sprintf(`{
-		data(func: has(%s)) %s 
-	}`, nodeType, query)
+func (q *Query) executeQuery() (result []byte, err error) {
+	queryString := q.String()
 
-	resp, err := tx.Query(ctx, q)
+	var resp *api.Response
+	if q.vars != nil {
+		resp, err = q.tx.QueryWithVars(q.ctx, queryString, q.vars)
+	} else {
+		resp, err = q.tx.Query(q.ctx, queryString)
+	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return Node(resp.Json, model)
+	return resp.Json, nil
 }
 
-// Find returns multiple nodes that matches the specified Dgraph query filter,
-// the passed model must be a pointer to a slice
-func Find(ctx context.Context, tx *dgo.Txn, filter string, model interface{}) error {
-	nodeType := GetNodeType(model)
-	query := fmt.Sprintf(`{
-		data(func: has(%s)) @filter(%s) {
-			uid
-			expand(_all_)
-		}
-	}`, nodeType, filter)
-	resp, err := tx.Query(ctx, query)
-	if err != nil {
-		return err
-	}
-
-	return Nodes(resp.Json, model)
+// Get prepares a query for a model
+func Get(ctx context.Context, tx *dgo.Txn, model interface{}) *Query {
+	return &Query{ctx: ctx, tx: tx, model: model}
 }
 
 // Node marshals a single node to a single object of model,
 // returns error if no nodes are found,
 // query root must be data(func ...)
 func Node(jsonData []byte, model interface{}) error {
-	var result struct {
-		Data []json.RawMessage
+	// JSON data must be in format {"data":[{ ... }]}
+	// get only inner object
+	dataPrefix := `{"data":[`
+	strippedPrefix := strings.TrimPrefix(string(jsonData), dataPrefix)
+
+	if len(strippedPrefix) == len(jsonData)-len(dataPrefix) {
+		dataBytes := []byte(strippedPrefix)
+		// remove the ending array closer ']'
+		dataBytes = dataBytes[:len(dataBytes)-2]
+
+		if len(dataBytes) == 0 {
+			return ErrNodeNotFound
+		}
+
+		return json.Unmarshal(dataBytes, model)
 	}
 
-	if err := json.Unmarshal(jsonData, &result); err != nil {
-		return err
-	}
-
-	if len(result.Data) == 0 {
-		return ErrNodeNotFound
-	}
-
-	val := result.Data[0]
-	if err := json.Unmarshal(val, model); err != nil {
-		return err
-	}
-
-	return nil
+	return fmt.Errorf("invalid json result for node: %s", jsonData)
 }
 
 // Nodes marshals multiple nodes to a slice of model,
 // query root must be data(func ...)
 func Nodes(jsonData []byte, model interface{}) error {
-	var result struct {
-		Data json.RawMessage
+	// JSON data must start with {"data":
+	dataPrefix := `{"data":`
+	strippedPrefix := strings.TrimPrefix(string(jsonData), dataPrefix)
+
+	if len(strippedPrefix) == len(jsonData)-len(dataPrefix) {
+		dataBytes := []byte(strippedPrefix)
+		return json.Unmarshal(dataBytes[:len(dataBytes)-1], model)
 	}
 
-	if err := json.Unmarshal(jsonData, &result); err != nil {
-		return err
-	}
-
-	if err := json.Unmarshal(result.Data, model); err != nil {
-		return err
-	}
-
-	return nil
+	return fmt.Errorf("invalid json result for nodes: %s", jsonData)
 }

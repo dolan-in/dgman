@@ -26,11 +26,10 @@
     - [Create (Mutate with Unique Checking)](#create-mutate-with-unique-checking)
     - [Update (Mutate Existing Node with Unique Checking)](#update-mutate-existing-node-with-unique-checking)
   - [Query Helpers](#query-helpers)
-    - [GetByUID](#getbyuid)
-    - [GetByFilter](#getbyfilter)
-    - [GetByQuery](#getbyquery)
-    - [Find](#find)
-- [TODO](#todo)
+    - [Get by UID](#get-by-uid)
+    - [Get by Filter](#get-by-filter)
+    - [Get by Query](#get-by-query)
+  - [Delete Helper](#delete-helper)
 
 ## Installation
 
@@ -196,7 +195,7 @@ To define a field to be unique, add `unique` in the `dgraph` tag on the struct d
 ```go
 type User struct {
 	UID 		string `json:"uid,omitempty"`
-	Name 		string `json:"name,omitempty"`
+	Name 		string `json:"name,omitempty" dgraph:"index=term"`
 	Email 		string `json:"email,omitempty" dgraph:"index=hash unique"`
 	Username 	string `json:"username,omitempty" dgraph:"index=term unique"`
 }
@@ -235,10 +234,11 @@ This is similar to `Create`, but for existing nodes. So the `uid` field must be 
 
 ```go
 type User struct {
-	UID 		string `json:"uid,omitempty"`
-	Name 		string `json:"name,omitempty"`
-	Email 		string `json:"email,omitempty" dgraph:"index=hash unique"`
-	Username 	string `json:"username,omitempty" dgraph:"index=term unique"`
+	UID 			string 		`json:"uid,omitempty"`
+	Name 			string 		`json:"name,omitempty"`
+	Email 		string 		`json:"email,omitempty" dgraph:"index=hash unique"`
+	Username 	string 		`json:"username,omitempty" dgraph:"index=term unique"`
+	Dob				time.Time	`json:"dob" dgraph:"index=day"`
 }
 
 ...
@@ -287,11 +287,12 @@ type User struct {
 
 ### Query Helpers
 
-#### GetByUID
+#### Get by UID
 
 ```go
+// Get by UID
 user := User{}
-if err := dgman.GetByUID(ctx, tx, "0x9cd5", &user); err != nil {
+if err := dgman.Get(ctx, tx, &user).UID("0x9cd5"); err != nil {
 	if err == dgman.ErrNodeNotFound {
 		// node not found
 	}
@@ -301,13 +302,16 @@ if err := dgman.GetByUID(ctx, tx, "0x9cd5", &user); err != nil {
 fmt.Println(user)
 ```
 
-### GetByFilter
+### Get by Filter
 
 ```go
 user := User{}
-filter := `allofterms(name, "wildan")`
 // get node with node type `user` that matches filter
-if err := dgman.GetByFilter(ctx, tx, filter, &user); err != nil {
+err := dgman.Get(ctx, tx, &user).
+	Vars("getUser($name: string)", map[string]string{"$name": "wildan"}). // function defintion and Graphql variables
+	Filter("allofterms(name, $name)"). // dgraph filter
+	Node() // get single node from query
+if err != nil {
 	if err == dgman.ErrNodeNotFound {
 		// node using the specified filter not found
 	}
@@ -317,44 +321,55 @@ if err := dgman.GetByFilter(ctx, tx, filter, &user); err != nil {
 fmt.Println(user)
 ```
 
-### GetByQuery
+### Get by query
 
 ```go
-user := User{}
-query := `@filter(allofterms(name, "wildan")) {
+users := []User{}
+query := `@filter(allofterms(name, $name)) {
 	uid
 	expand(_all_) {
 		uid
 		expand(_all_)
 	}
 }`
-// get node with node type `user` that matches filter
-if err := dgman.GetByQuery(ctx, tx, query, &user); err != nil {
-	if err == dgman.ErrNodeNotFound {
-		// node using the specified filter not found
-	}
+// get nodes with node type `user` that matches filter
+err := dgman.Get(ctx, tx, &users).
+	Vars("getUsers($name: string)", map[string]string{"$name": "wildan"}). // function defintion and Graphql variables
+	Query(query). // dgraph query portion (without root function)
+	OrderAsc("name"). // ordering ascending by predicate
+	OrderDesc("dob"). // multiple ordering is allowed
+	First(10). // get first 10 nodes from result
+	Nodes() // get all nodes from the prepared query
+if err != nil {
 }
 
-// struct will be populated if found
-fmt.Println(user)
-```
-
-### Find
-
-```go
-users := []User{}
-filter := `allofterms(name, "wildan")`
-// find all nodes with node type `user` that matches the filter
-if err := dgman.Find(ctx, tx, filter, &user); err != nil {
-	panic(err)
-}
-
-// return list of user nodes with name containing "wildan"
+// slice will be populated if found
 fmt.Println(users)
 ```
 
-## TODO
+## Delete Helper
 
-- Delete helpers
-- More query options (nested filters, facets, edge expansion)
-- Optimizations (especially the reflection codes)
+Delete helpers can be used to simplify deleting nodes that matches a query, using the same query format as [Query Helpers](#query-helpers).
+
+```go
+query := `@filter(allofterms(name, $name)) {
+	uid
+	expand(_all_) {
+		uid
+	}
+}`
+// delete all nodes with node type `user` that matches query
+// all edge nodes that are specified in the query will also be deleted
+deletedUids, err := dgman.Delete(ctx, tx, &User{}, dgman.MutateOptions{CommitNow: true}).
+	Vars("getUsers($name: string)", map[string]string{"$name": "wildan"}). // function defintion and Graphql variables
+	Query(query). // dgraph query portion (without root function)
+	OrderAsc("name"). // ordering ascending by predicate
+	OrderDesc("dob"). // multiple ordering is allowed
+	First(10). // get first 10 nodes from result
+	Nodes() // delete all nodes from the prepared query
+if err != nil {
+}
+
+// check the deleted uids
+fmt.Println(deletedUids)
+```

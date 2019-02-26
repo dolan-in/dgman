@@ -32,6 +32,7 @@ import (
 const tagName = "dgraph"
 
 type rawSchema struct {
+	Predicate  string
 	Index      string
 	Constraint string
 	Reverse    bool
@@ -220,6 +221,10 @@ func parseDgraphTag(field *reflect.StructField) (*Schema, error) {
 		schema.Reverse = dgraphProps.Reverse
 		schema.Unique = dgraphProps.Unique
 		schema.NotNull = dgraphProps.Notnull
+
+		if dgraphProps.Predicate != "" {
+			schema.Predicate = dgraphProps.Predicate
+		}
 
 		if dgraphProps.Type != "" {
 			schema.Type = dgraphProps.Type

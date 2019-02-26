@@ -19,6 +19,7 @@ package dgman
 import (
 	"context"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/dgraph-io/dgo"
@@ -59,4 +60,8 @@ func dropAll(client ...*dgo.Dgraph) {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func intToBytes(no int) []byte {
+	return []byte(strconv.Itoa(no))
 }

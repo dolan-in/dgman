@@ -17,6 +17,7 @@
 package dgman
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -264,7 +265,7 @@ func (m *mutateType) unique(ctx context.Context, tx *dgo.Txn, data interface{}, 
 		uid := uniqueFields[uidIndex].(string)
 
 		node := reflect.New(m.vType).Interface()
-		if err := GetByUID(ctx, tx, uid, node); err != nil {
+		if err := Get(ctx, tx, node).UID(uid); err != nil {
 			return err
 		}
 
@@ -309,7 +310,7 @@ func exists(ctx context.Context, tx *dgo.Txn, field string, value interface{}, m
 	}
 
 	filter := fmt.Sprintf(`eq(%s, %s)`, field, jsonValue)
-	if err := GetByFilter(ctx, tx, filter, model); err != nil {
+	if err := Get(ctx, tx, model).Filter(filter).Node(); err != nil {
 		if err == ErrNodeNotFound {
 			return false, nil
 		}
@@ -375,20 +376,22 @@ func marshalAndInjectType(data interface{}, disableInject bool) ([]byte, error) 
 		nodeType := GetNodeType(data)
 
 		jsonString := jsonData
-		switch string(jsonString[0]) {
-		case "{": // if JSON object, starts with "{"
-			result := fmt.Sprintf(`{"%s":"",%s`, nodeType, string(jsonData[1:]))
+		switch jsonString[0] {
+		case '{': // if JSON object, starts with "{"
+			result := `{"` + nodeType + `":"",` + string(jsonData[1:])
 			return []byte(result), nil
-		case "[": // if JSON array, starts with "[", inject node type one by one
-			result := ""
+		case '[': // if JSON array, starts with "[", inject node type one by one
+			var result bytes.Buffer
 			for _, char := range jsonString {
-				if string(char) == "{" {
-					result += fmt.Sprintf(`{"%s":"",`, nodeType)
+				if char == '{' {
+					result.WriteString(`{"`)
+					result.WriteString(nodeType)
+					result.WriteString(`":"",`)
 					continue
 				}
-				result += string(char)
+				result.WriteByte(char)
 			}
-			return []byte(result), nil
+			return result.Bytes(), nil
 		}
 	}
 

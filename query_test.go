@@ -18,6 +18,8 @@ package dgman
 
 import (
 	"context"
+	"fmt"
+	"log"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,7 +29,7 @@ type TestModel struct {
 	UID     string     `json:"uid"`
 	Name    string     `json:"name" dgraph:"index=term"`
 	Address string     `json:"address"`
-	Age     int        `json:"age"`
+	Age     int        `json:"age" dgraph:"index=int"`
 	Dead    bool       `json:"dead"`
 	Edges   []TestEdge `json:"edges"`
 }
@@ -58,7 +60,7 @@ func TestGetByUID(t *testing.T) {
 
 	dst := &TestModel{}
 	tx = c.NewTxn()
-	if err := GetByUID(ctx, tx, source.UID, dst); err != nil {
+	if err := Get(ctx, tx, dst).UID(source.UID); err != nil {
 		t.Error(err)
 	}
 
@@ -92,7 +94,7 @@ func TestGetByFilter(t *testing.T) {
 
 	dst := &TestModel{}
 	tx = c.NewTxn()
-	if err := GetByFilter(ctx, tx, `allofterms(name, "wildan")`, dst); err != nil {
+	if err := Get(ctx, tx, dst).Filter(`allofterms(name, "wildan")`).Node(); err != nil {
 		t.Error(err)
 	}
 
@@ -100,6 +102,12 @@ func TestGetByFilter(t *testing.T) {
 	assert.Equal(t, source.Address, dst.Address)
 	assert.Equal(t, source.Age, dst.Age)
 	assert.Equal(t, source.Dead, dst.Dead)
+
+	dst = &TestModel{}
+	tx = c.NewTxn()
+	if err := Get(ctx, tx, dst).Filter(`allofterms(name, "onono")`).Node(); err != ErrNodeNotFound {
+		t.Error(err)
+	}
 }
 
 func TestFind(t *testing.T) {
@@ -139,7 +147,7 @@ func TestFind(t *testing.T) {
 
 	var dst []TestModel
 	tx = c.NewTxn()
-	if err := Find(ctx, tx, `allofterms(name, "wildan")`, &dst); err != nil {
+	if err := Get(ctx, tx, &dst).Filter(`allofterms(name, "wildan")`).Nodes(); err != nil {
 		t.Error(err)
 	}
 
@@ -191,13 +199,15 @@ func TestGetByQuery(t *testing.T) {
 
 	var dst TestModel
 	tx = c.NewTxn()
-	if err := GetByQuery(ctx, tx, `@filter(allofterms(name, "wildan")) {
+	q := Get(ctx, tx, &dst).Query(`@filter(allofterms(name, "wildan")) {
 		uid
 		expand(_all_) {
 			uid
 			expand(_all_)
 		}
-	}`, &dst); err != nil {
+	}`)
+	log.Println(q)
+	if err := q.Node(); err != nil {
 		t.Error(err)
 	}
 
@@ -205,4 +215,130 @@ func TestGetByQuery(t *testing.T) {
 	assert.Len(t, dst.Edges, 1)
 	assert.Equal(t, dst.Edges[0].UID, source2.UID)
 	assert.Equal(t, dst.Edges[0].Level, source2.Level)
+}
+
+func TestPagination(t *testing.T) {
+	models := []TestModel{}
+	for i := 0; i < 20; i++ {
+		models = append(models, TestModel{
+			Name:    fmt.Sprintf("wildan %d", i),
+			Address: "Beverly Hills",
+			Age:     17,
+		})
+	}
+	c := newDgraphClient()
+	if _, err := CreateSchema(c, &TestModel{}); err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	tx := c.NewTxn()
+
+	ctx := context.Background()
+	err := Mutate(ctx, tx, &models)
+	if err != nil {
+		t.Error(err)
+	}
+	tx.Commit(ctx)
+
+	result := []TestModel{}
+	query := Get(ctx, c.NewTxn(), &result).
+		Vars("getWithNames($name: string)", map[string]string{"$name": "wildan"}).
+		Filter("allofterms(name, $name)").
+		First(10)
+	log.Println(query)
+	if err = query.Nodes(); err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, result, 10)
+
+	result = []TestModel{}
+	query = Get(ctx, c.NewTxn(), &result).
+		Vars("getWithNames($name: string)", map[string]string{"$name": "nonon"}).
+		Filter("allofterms(name, $name)").
+		First(10)
+	if err = query.Nodes(); err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, result, 0)
+
+	result = []TestModel{}
+	query = Get(ctx, c.NewTxn(), &result).
+		Vars("getWithNames($name: string)", map[string]string{"$name": "wildan"}).
+		Filter("allofterms(name, $name)").
+		First(255555)
+	if err = query.Nodes(); err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, result, 20)
+}
+
+func TestOrder(t *testing.T) {
+	models := []*TestModel{}
+	for i := 0; i < 20; i++ {
+		models = append(models, &TestModel{
+			Name:    fmt.Sprintf("wildan %d", i%10),
+			Address: "Beverly Hills",
+			Age:     i,
+		})
+	}
+	c := newDgraphClient()
+	if _, err := CreateSchema(c, &TestModel{}); err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	tx := c.NewTxn()
+
+	ctx := context.Background()
+	err := Create(ctx, tx, &models)
+	if err != nil {
+		t.Error(err)
+	}
+	tx.Commit(ctx)
+
+	result := []*TestModel{}
+	query := Get(ctx, c.NewTxn(), &result).
+		Vars("getWithNames($name: string)", map[string]string{"$name": "wildan"}).
+		Filter("allofterms(name, $name)").
+		OrderAsc("age")
+	log.Println(query)
+	if err = query.Nodes(); err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, result, 20)
+
+	for i, r := range result {
+		log.Println(*r)
+		assert.Equal(t, models[i], r)
+	}
+
+	result = []*TestModel{}
+	query = Get(ctx, c.NewTxn(), &result).
+		Vars("getWithNames($name: string)", map[string]string{"$name": "wildan"}).
+		Filter("allofterms(name, $name)").
+		OrderAsc("name").
+		OrderDesc("age")
+	log.Println(query)
+	if err = query.Nodes(); err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, result, 20)
+
+	for i, r := range result {
+		log.Println(*r)
+		if i < len(result)-1 {
+			next := result[i+1]
+			if r.Name == next.Name {
+				if r.Age < next.Age {
+					t.Error("wrong order")
+				}
+			}
+		}
+	}
 }
