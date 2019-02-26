@@ -58,9 +58,9 @@ type Anonymous struct {
 }
 
 type School struct {
-	UID      string `json:"uid,omitempty"`
-	Name     string `json:"name,omitempty"`
-	Location GeoLoc `json:"location,omitempty" dgraph:"type=geo"` // test passing type
+	UID      string  `json:"uid,omitempty"`
+	Name     string  `json:"name,omitempty"`
+	Location *GeoLoc `json:"location,omitempty" dgraph:"type=geo"` // test passing type
 }
 
 type OneToOne struct {

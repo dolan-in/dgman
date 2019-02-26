@@ -17,10 +17,12 @@
 package dgman
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/dgraph-io/dgo/protos/api"
 
@@ -31,46 +33,9 @@ var (
 	ErrNodeNotFound = errors.New("node not found")
 )
 
-// Node marshals a single node to a single object of model,
-// returns error if no nodes are found,
-// query root must be data(func ...)
-func Node(jsonData []byte, model interface{}) error {
-	var result struct {
-		Data []json.RawMessage
-	}
-
-	if err := json.Unmarshal(jsonData, &result); err != nil {
-		return err
-	}
-
-	if len(result.Data) == 0 {
-		return ErrNodeNotFound
-	}
-
-	val := result.Data[0]
-	if err := json.Unmarshal(val, model); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// Nodes marshals multiple nodes to a slice of model,
-// query root must be data(func ...)
-func Nodes(jsonData []byte, model interface{}) error {
-	var result struct {
-		Data json.RawMessage
-	}
-
-	if err := json.Unmarshal(jsonData, &result); err != nil {
-		return err
-	}
-
-	if err := json.Unmarshal(result.Data, model); err != nil {
-		return err
-	}
-
-	return nil
+type order struct {
+	descending bool
+	clause     string
 }
 
 type Query struct {
@@ -83,28 +48,32 @@ type Query struct {
 	first       int
 	offset      int
 	after       string
+	order       []order
 }
 
+// Query defines the query portion other than the root function
 func (q *Query) Query(query string) *Query {
 	q.queryString = query
 	return q
 }
 
+// Filter defines a query filter, return predicates at the first depth
 func (q *Query) Filter(filter string) *Query {
-	q.queryString = fmt.Sprintf(`@filter(%s) {
+	q.queryString = `@filter(` + filter + `) {
 		uid
 		expand(_all_)
-	}`, filter)
+	}`
 	return q
 }
 
+// UID returns the node with the specified uid
 func (q *Query) UID(uid string) error {
-	query := fmt.Sprintf(`{
-		data(func: uid(%s)) {
+	query := `{
+		data(func: uid(` + uid + `)) {
 			uid
 			expand(_all_)
 		}
-	}`, uid)
+	}`
 
 	resp, err := q.tx.Query(q.ctx, query)
 	if err != nil {
@@ -114,6 +83,18 @@ func (q *Query) UID(uid string) error {
 	return Node(resp.Json, q.model)
 }
 
+// All returns all nodes of the specified node type (from model)
+func (q *Query) All() *Query {
+	q.queryString = `{
+		uid
+		expand(_all_)
+	}`
+	return q
+}
+
+// Vars specify the GraphQL variables to be passed on the query,
+// by specifying the function definition of vars, and variable map.
+// Example funcDef: getUserByEmail($email: string)
 func (q *Query) Vars(funcDef string, vars map[string]string) *Query {
 	q.paramString = funcDef
 	q.vars = vars
@@ -135,7 +116,21 @@ func (q *Query) After(uid string) *Query {
 	return q
 }
 
+func (q *Query) OrderAsc(clause string) *Query {
+	q.order = append(q.order, order{clause: clause})
+	return q
+}
+
+func (q *Query) OrderDesc(clause string) *Query {
+	q.order = append(q.order, order{descending: true, clause: clause})
+	return q
+}
+
+// Node returns the first single node from the query
 func (q *Query) Node() (err error) {
+	// make sure only 1 node is return
+	q.first = 1
+
 	result, err := q.executeQuery()
 	if err != nil {
 		return err
@@ -143,6 +138,7 @@ func (q *Query) Node() (err error) {
 	return Node(result, q.model)
 }
 
+// Nodes returns all results from the query
 func (q *Query) Nodes() error {
 	result, err := q.executeQuery()
 	if err != nil {
@@ -152,31 +148,52 @@ func (q *Query) Nodes() error {
 }
 
 func (q *Query) String() string {
-	query := ""
+	var queryBuf bytes.Buffer
 	if q.vars != nil {
-		query = "query " + q.paramString
+		queryBuf.WriteString("query ")
+		queryBuf.WriteString(q.paramString)
 	}
 
 	nodeType := GetNodeType(q.model)
-	query += fmt.Sprintf(`{
-	data(func: has(%s)`, nodeType)
+	queryBuf.WriteString("{\n\tdata(func: has(")
+	queryBuf.WriteString(nodeType)
+	queryBuf.WriteByte(')')
 
 	if q.first != 0 {
-		query += fmt.Sprintf(", first: %d", q.first)
+		queryBuf.WriteString(", first: ")
+		queryBuf.Write(intToBytes(q.first))
 	}
 
 	if q.offset != 0 {
-		query += fmt.Sprintf(", offset: %d", q.offset)
+		queryBuf.WriteString(", offset: ")
+		queryBuf.Write(intToBytes(q.offset))
 	}
 
 	if q.after != "" {
-		query += fmt.Sprintf(", after: %s", q.after)
+		queryBuf.WriteString(", after: ")
+		queryBuf.WriteString(q.after)
 	}
 
-	query += fmt.Sprintf(`) %s
-}`, q.queryString)
+	if len(q.order) > 0 {
+		for _, order := range q.order {
+			orderStr := ", orderasc: "
+			if order.descending {
+				orderStr = ", orderdesc: "
+			}
+			queryBuf.WriteString(orderStr)
+			queryBuf.WriteString(order.clause)
+		}
+	}
 
-	return query
+	if q.queryString == "" {
+		q.All()
+	}
+
+	queryBuf.WriteString(") ")
+	queryBuf.WriteString(q.queryString)
+	queryBuf.WriteString(" \n}")
+
+	return queryBuf.String()
 }
 
 func (q *Query) executeQuery() (result []byte, err error) {
@@ -195,7 +212,46 @@ func (q *Query) executeQuery() (result []byte, err error) {
 	return resp.Json, nil
 }
 
-// Get
+// Get prepares a query for a model
 func Get(ctx context.Context, tx *dgo.Txn, model interface{}) *Query {
 	return &Query{ctx: ctx, tx: tx, model: model}
+}
+
+// Node marshals a single node to a single object of model,
+// returns error if no nodes are found,
+// query root must be data(func ...)
+func Node(jsonData []byte, model interface{}) error {
+	// JSON data must be in format {"data":[{ ... }]}
+	// get only inner object
+	dataPrefix := `{"data":[`
+	strippedPrefix := strings.TrimPrefix(string(jsonData), dataPrefix)
+
+	if len(strippedPrefix) == len(jsonData)-len(dataPrefix) {
+		dataBytes := []byte(strippedPrefix)
+		// remove the ending array closer ']'
+		dataBytes = dataBytes[:len(dataBytes)-2]
+
+		if len(dataBytes) == 0 {
+			return ErrNodeNotFound
+		}
+
+		return json.Unmarshal(dataBytes, model)
+	}
+
+	return fmt.Errorf("invalid json result for node: %s", jsonData)
+}
+
+// Nodes marshals multiple nodes to a slice of model,
+// query root must be data(func ...)
+func Nodes(jsonData []byte, model interface{}) error {
+	// JSON data must start with {"data":
+	dataPrefix := `{"data":`
+	strippedPrefix := strings.TrimPrefix(string(jsonData), dataPrefix)
+
+	if len(strippedPrefix) == len(jsonData)-len(dataPrefix) {
+		dataBytes := []byte(strippedPrefix)
+		return json.Unmarshal(dataBytes[:len(dataBytes)-1], model)
+	}
+
+	return fmt.Errorf("invalid json result for nodes: %s", jsonData)
 }
