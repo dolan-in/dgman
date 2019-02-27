@@ -45,6 +45,7 @@ type Query struct {
 	queryString string
 	paramString string
 	vars        map[string]string
+	rootFunc    string
 	first       int
 	offset      int
 	after       string
@@ -101,6 +102,13 @@ func (q *Query) Vars(funcDef string, vars map[string]string) *Query {
 	return q
 }
 
+// RootFunc modifies the dgraph query root function, if not set,
+// the default is "has(node_type)"
+func (q *Query) RootFunc(rootFunc string) *Query {
+	q.rootFunc = rootFunc
+	return q
+}
+
 func (q *Query) First(n int) *Query {
 	q.first = n
 	return q
@@ -154,10 +162,17 @@ func (q *Query) String() string {
 		queryBuf.WriteString(q.paramString)
 	}
 
-	nodeType := GetNodeType(q.model)
-	queryBuf.WriteString("{\n\tdata(func: has(")
-	queryBuf.WriteString(nodeType)
-	queryBuf.WriteByte(')')
+	queryBuf.WriteString("{\n\tdata(func: ")
+
+	if q.rootFunc == "" {
+		// if root function is not defined, query from node type
+		nodeType := GetNodeType(q.model)
+		queryBuf.WriteString("has(")
+		queryBuf.WriteString(nodeType)
+		queryBuf.WriteByte(')')
+	} else {
+		queryBuf.WriteString(q.rootFunc)
+	}
 
 	if q.first != 0 {
 		queryBuf.WriteString(", first: ")
