@@ -62,6 +62,13 @@ func (d *Deleter) Vars(funcDef string, vars map[string]string) *Deleter {
 	return d
 }
 
+// RootFunc modifies the dgraph query root function, if not set,
+// the default is "has(node_type)"
+func (d *Deleter) RootFunc(rootFunc string) *Deleter {
+	d.q.rootFunc = rootFunc
+	return d
+}
+
 func (d *Deleter) First(n int) *Deleter {
 	d.q.first = n
 	return d

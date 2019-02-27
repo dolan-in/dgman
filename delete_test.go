@@ -137,6 +137,7 @@ func TestDeleteQuery(t *testing.T) {
 	log.Println(users[0])
 
 	nodes, err := Delete(context.Background(), c.NewTxn(), &User{}, MutateOptions{CommitNow: true}).
+		RootFunc("has(user)").
 		Query(`@filter(allofterms(name, "wildan")) {
 			uid
 			schools {
@@ -151,7 +152,7 @@ func TestDeleteQuery(t *testing.T) {
 	assert.Len(t, nodes, 3)
 
 	var all []*User
-	if err := Get(context.Background(), c.NewTxn(), &all).All().Nodes(); err != nil {
+	if err := Get(context.Background(), c.NewTxn(), &all).RootFunc("has(user)").All().Nodes(); err != nil {
 		t.Error(err)
 	}
 
