@@ -50,6 +50,7 @@ type Query struct {
 	offset      int
 	after       string
 	order       []order
+	uid         string
 }
 
 // Query defines the query portion other than the root function
@@ -68,20 +69,9 @@ func (q *Query) Filter(filter string) *Query {
 }
 
 // UID returns the node with the specified uid
-func (q *Query) UID(uid string) error {
-	query := `{
-		data(func: uid(` + uid + `)) {
-			uid
-			expand(_all_)
-		}
-	}`
-
-	resp, err := q.tx.Query(q.ctx, query)
-	if err != nil {
-		return err
-	}
-
-	return Node(resp.Json, q.model)
+func (q *Query) UID(uid string) *Query {
+	q.uid = uid
+	return q
 }
 
 // All returns all nodes of the specified node type (from model)
@@ -164,39 +154,45 @@ func (q *Query) String() string {
 
 	queryBuf.WriteString("{\n\tdata(func: ")
 
-	if q.rootFunc == "" {
-		// if root function is not defined, query from node type
-		nodeType := GetNodeType(q.model)
-		queryBuf.WriteString("has(")
-		queryBuf.WriteString(nodeType)
-		queryBuf.WriteByte(')')
+	if q.uid != "" {
+		queryBuf.WriteString("uid(")
+		queryBuf.WriteString(q.uid)
+		queryBuf.WriteString(")")
 	} else {
-		queryBuf.WriteString(q.rootFunc)
-	}
+		if q.rootFunc == "" {
+			// if root function is not defined, query from node type
+			nodeType := GetNodeType(q.model)
+			queryBuf.WriteString("has(")
+			queryBuf.WriteString(nodeType)
+			queryBuf.WriteByte(')')
+		} else {
+			queryBuf.WriteString(q.rootFunc)
+		}
 
-	if q.first != 0 {
-		queryBuf.WriteString(", first: ")
-		queryBuf.Write(intToBytes(q.first))
-	}
+		if q.first != 0 {
+			queryBuf.WriteString(", first: ")
+			queryBuf.Write(intToBytes(q.first))
+		}
 
-	if q.offset != 0 {
-		queryBuf.WriteString(", offset: ")
-		queryBuf.Write(intToBytes(q.offset))
-	}
+		if q.offset != 0 {
+			queryBuf.WriteString(", offset: ")
+			queryBuf.Write(intToBytes(q.offset))
+		}
 
-	if q.after != "" {
-		queryBuf.WriteString(", after: ")
-		queryBuf.WriteString(q.after)
-	}
+		if q.after != "" {
+			queryBuf.WriteString(", after: ")
+			queryBuf.WriteString(q.after)
+		}
 
-	if len(q.order) > 0 {
-		for _, order := range q.order {
-			orderStr := ", orderasc: "
-			if order.descending {
-				orderStr = ", orderdesc: "
+		if len(q.order) > 0 {
+			for _, order := range q.order {
+				orderStr := ", orderasc: "
+				if order.descending {
+					orderStr = ", orderdesc: "
+				}
+				queryBuf.WriteString(orderStr)
+				queryBuf.WriteString(order.clause)
 			}
-			queryBuf.WriteString(orderStr)
-			queryBuf.WriteString(order.clause)
 		}
 	}
 

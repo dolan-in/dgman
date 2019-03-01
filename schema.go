@@ -184,13 +184,6 @@ func getSchemaType(fieldType reflect.Type) string {
 		schemaType = "float"
 	}
 
-	// check if custom struct/type specifies a scalar type
-	// from CustomScalar interface
-	ptr := reflect.New(fieldType)
-	if scalar, ok := ptr.Elem().Interface().(CustomScalar); ok {
-		schemaType = scalar.ScalarType()
-	}
-
 	return schemaType
 }
 
