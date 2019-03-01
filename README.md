@@ -8,10 +8,11 @@
 ## Features
 - Create schemas and indexes from struct tags.
 - Detect conflicts from existing schema and defined schema.
-- Mutate Helpers (Create, Update)
+- Mutate Helpers (Create, Update).
 - Autoinject [node type](https://docs.dgraph.io/howto/#giving-nodes-a-type) from struct.
 - Field unique checking (e.g: emails, username).
 - Query helpers.
+- Delete helper.
 
 ## Table of Contents
 
@@ -63,7 +64,7 @@ type User struct {
 	Password string     `json:"password,omitempty"`
 	Height   *int       `json:"height,omitempty"`
 	Dob      *time.Time `json:"dob,omitempty"` // will be inferred as dateTime schema type
-	Status   EnumType   `json:"status,omitempty"`
+	Status   EnumType   `json:"status,omitempty" dgraph="type=int"`
 	Created  time.Time  `json:"created,omitempty" dgraph:"index=day"` // will be inferred as dateTime schema type, with day index
 	Mobiles  []string   `json:"mobiles,omitempty"` // will be inferred as using the  [string] schema type, slices with primitive types will all be inferred as lists
 	Schools  []School   `json:"schools,omitempty" dgraph:"count reverse"` // defines an edge to other nodes, add count index, add reverse edges
@@ -71,17 +72,9 @@ type User struct {
 
 // School is another node, that will be connected to User node using the schools predicate
 type School struct {
-	UID      string `json:"uid,omitempty"`
-	Name     string `json:"name,omitempty"`
-	Location GeoLoc `json:"location,omitempty" dgraph:"type=geo"` // for geo schema type, need to specify explicitly
-}
-
-
-// If custom types are used, you need to specify the type in the ScalarType() method
-type EnumType int
-
-func (e EnumType) ScalarType() string {
-	return "int"
+	UID      string 	`json:"uid,omitempty"`
+	Name     string 	`json:"name,omitempty"`
+	Location *GeoLoc 	`json:"location,omitempty" dgraph:"type=geo"` // for geo schema type, need to specify explicitly
 }
 
 type GeoLoc struct {
@@ -194,8 +187,8 @@ To define a field to be unique, add `unique` in the `dgraph` tag on the struct d
 
 ```go
 type User struct {
-	UID 		string `json:"uid,omitempty"`
-	Name 		string `json:"name,omitempty" dgraph:"index=term"`
+	UID 			string `json:"uid,omitempty"`
+	Name 			string `json:"name,omitempty" dgraph:"index=term"`
 	Email 		string `json:"email,omitempty" dgraph:"index=hash unique"`
 	Username 	string `json:"username,omitempty" dgraph:"index=term unique"`
 }
@@ -292,7 +285,7 @@ type User struct {
 ```go
 // Get by UID
 user := User{}
-if err := dgman.Get(ctx, tx, &user).UID("0x9cd5"); err != nil {
+if err := dgman.Get(ctx, tx, &user).UID("0x9cd5").Node(); err != nil {
 	if err == dgman.ErrNodeNotFound {
 		// node not found
 	}

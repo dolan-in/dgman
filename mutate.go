@@ -265,7 +265,7 @@ func (m *mutateType) unique(ctx context.Context, tx *dgo.Txn, data interface{}, 
 		uid := uniqueFields[uidIndex].(string)
 
 		node := reflect.New(m.vType).Interface()
-		if err := Get(ctx, tx, node).UID(uid); err != nil {
+		if err := Get(ctx, tx, node).UID(uid).Node(); err != nil {
 			return err
 		}
 

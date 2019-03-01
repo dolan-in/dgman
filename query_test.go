@@ -60,7 +60,7 @@ func TestGetByUID(t *testing.T) {
 
 	dst := &TestModel{}
 	tx = c.NewTxn()
-	if err := Get(ctx, tx, dst).UID(source.UID); err != nil {
+	if err := Get(ctx, tx, dst).UID(source.UID).Node(); err != nil {
 		t.Error(err)
 	}
 

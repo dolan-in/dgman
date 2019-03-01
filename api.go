@@ -20,8 +20,3 @@ package dgman
 type NodeType interface {
 	NodeType() string
 }
-
-// CustomScalar is an interface for defining scalar type from custom struct types
-type CustomScalar interface {
-	ScalarType() string
-}

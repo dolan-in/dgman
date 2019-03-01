@@ -30,10 +30,6 @@ type GeoLoc struct {
 	Coord []float64 `json:"coordinates"`
 }
 
-func (e EnumType) ScalarType() string {
-	return "int"
-}
-
 type User struct {
 	UID        string       `json:"uid,omitempty"`
 	Name       string       `json:"name,omitempty" dgraph:"index=term"`
@@ -42,7 +38,7 @@ type User struct {
 	Password   string       `json:"password,omitempty"`
 	Height     *int         `json:"height,omitempty"`
 	Dob        *time.Time   `json:"dob,omitempty"`
-	Status     EnumType     `json:"status,omitempty"`
+	Status     EnumType     `json:"status,omitempty" dgraph:"type=int"`
 	Created    time.Time    `json:"created,omitempty"`
 	Dates      []time.Time  `json:"dates,omitempty"`
 	DatesPtr   []*time.Time `json:"dates_ptr,omitempty"`
