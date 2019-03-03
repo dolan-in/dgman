@@ -340,7 +340,7 @@ if err != nil {
 fmt.Println(users)
 ```
 
-## Delete Helper
+### Delete Helper
 
 Delete helpers can be used to simplify deleting nodes that matches a query, using the same query format as [Query Helpers](#query-helpers).
 
@@ -366,3 +366,7 @@ if err != nil {
 // check the deleted uids
 fmt.Println(deletedUids)
 ```
+
+## TODO
+- Filter generator
+- Deleting edges
