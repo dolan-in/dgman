@@ -34,22 +34,25 @@ type Deleter struct {
 }
 
 func (d *Deleter) Query(query string) *Deleter {
-	d.q.queryString = query
+	d.q.query = query
 	return d
 }
 
 func (d *Deleter) Filter(filter string) *Deleter {
-	d.q.queryString = `@filter(` + filter + `) {
-		uid
-	}`
+	d.q.filter = filter
 	return d
 }
 
-// All returns all nodes of the specified node type (from model)
-func (d *Deleter) All() *Deleter {
-	d.q.queryString = `{
-		uid
-	}`
+// UID returns the node with the specified uid
+func (d *Deleter) UID(uid string) *Deleter {
+	d.q.uid = uid
+	return d
+}
+
+// All returns expands all predicates, with a depth parameter that specifies
+// how deep should edges be expanded
+func (d *Deleter) All(depthParam ...int) *Deleter {
+	d.q.All(depthParam...)
 	return d
 }
 
@@ -92,6 +95,36 @@ func (d *Deleter) OrderAsc(clause string) *Deleter {
 func (d *Deleter) OrderDesc(clause string) *Deleter {
 	d.q.order = append(d.q.order, order{descending: true, clause: clause})
 	return d
+}
+
+// Edge delete edges of a node of specified edge predicate, if no edgeUIDs specified,
+// delete all edges
+func (d *Deleter) Edge(uid, edgePredicate string, edgeUIDs ...string) error {
+	var buffer bytes.Buffer
+
+	buffer.WriteString(`{"uid": "`)
+	buffer.WriteString(uid)
+	buffer.WriteString(`", "`)
+	buffer.WriteString(edgePredicate)
+	buffer.WriteString(`": `)
+
+	if len(edgeUIDs) == 0 {
+		// if no uids specified, delete all edges
+		buffer.WriteString(`null`)
+	} else {
+		buffer.WriteByte('[')
+		for _, edgeUID := range edgeUIDs {
+			buffer.WriteString(`{"uid": "`)
+			buffer.WriteString(edgeUID)
+			buffer.WriteString(`"}`)
+		}
+		buffer.WriteByte(']')
+	}
+
+	buffer.WriteByte('}')
+
+	_, err := d.tx.Mutate(d.ctx, &api.Mutation{DeleteJson: buffer.Bytes(), CommitNow: d.mutateOpt.CommitNow})
+	return err
 }
 
 // Node deletes the first single root node from the query

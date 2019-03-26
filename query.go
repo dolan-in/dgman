@@ -42,7 +42,6 @@ type Query struct {
 	ctx         context.Context
 	tx          *dgo.Txn
 	model       interface{}
-	queryString string
 	paramString string
 	vars        map[string]string
 	rootFunc    string
@@ -51,20 +50,19 @@ type Query struct {
 	after       string
 	order       []order
 	uid         string
+	filter      string
+	query       string
 }
 
 // Query defines the query portion other than the root function
 func (q *Query) Query(query string) *Query {
-	q.queryString = query
+	q.query = query
 	return q
 }
 
 // Filter defines a query filter, return predicates at the first depth
 func (q *Query) Filter(filter string) *Query {
-	q.queryString = `@filter(` + filter + `) {
-		uid
-		expand(_all_)
-	}`
+	q.filter = filter
 	return q
 }
 
@@ -74,12 +72,38 @@ func (q *Query) UID(uid string) *Query {
 	return q
 }
 
-// All returns all nodes of the specified node type (from model)
-func (q *Query) All() *Query {
-	q.queryString = `{
-		uid
-		expand(_all_)
-	}`
+func expandPredicate(depth int) string {
+	var buffer bytes.Buffer
+
+	buffer.WriteString("{\n\t\tuid\n\t\texpand(_all_)")
+	for i := 0; i < depth; i++ {
+		tabs := strings.Repeat("\t", i+1)
+		buffer.WriteString(" {\n\t\t")
+		buffer.WriteString(tabs)
+		buffer.WriteString("uid\n\t\t")
+		buffer.WriteString(tabs)
+		buffer.WriteString("expand(_all_)")
+	}
+	for i := depth - 1; i >= 0; i-- {
+		tabs := strings.Repeat("\t", i)
+		buffer.WriteString("\n\t\t")
+		buffer.WriteString(tabs)
+		buffer.WriteString("}")
+	}
+	buffer.WriteString("\n\t}")
+
+	return buffer.String()
+}
+
+// All returns expands all predicates, with a depth parameter that specifies
+// how deep should edges be expanded
+func (q *Query) All(depthParam ...int) *Query {
+	depth := 0
+	if len(depthParam) > 0 {
+		depth = depthParam[0]
+	}
+
+	q.query = expandPredicate(depth)
 	return q
 }
 
@@ -152,6 +176,7 @@ func (q *Query) String() string {
 		queryBuf.WriteString(q.paramString)
 	}
 
+	// START ROOT FUNCTION
 	queryBuf.WriteString("{\n\tdata(func: ")
 
 	if q.uid != "" {
@@ -195,13 +220,20 @@ func (q *Query) String() string {
 			}
 		}
 	}
+	queryBuf.WriteString(") ")
+	// END ROOT FUNCTION
 
-	if q.queryString == "" {
+	if q.filter != "" {
+		queryBuf.WriteString("@filter(")
+		queryBuf.WriteString(q.filter)
+		queryBuf.WriteByte(')')
+	}
+
+	if q.query == "" {
 		q.All()
 	}
 
-	queryBuf.WriteString(") ")
-	queryBuf.WriteString(q.queryString)
+	queryBuf.WriteString(q.query)
 	queryBuf.WriteString(" \n}")
 
 	return queryBuf.String()
