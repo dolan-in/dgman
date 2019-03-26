@@ -295,7 +295,7 @@ if err := dgman.Get(ctx, tx, &user).UID("0x9cd5").Node(); err != nil {
 fmt.Println(user)
 ```
 
-### Get by Filter
+#### Get by Filter
 
 ```go
 user := User{}
@@ -303,6 +303,7 @@ user := User{}
 err := dgman.Get(ctx, tx, &user).
 	Vars("getUser($name: string)", map[string]string{"$name": "wildan"}). // function defintion and Graphql variables
 	Filter("allofterms(name, $name)"). // dgraph filter
+	All(1). // returns all predicates, expand on 1 level of edge predicates
 	Node() // get single node from query
 if err != nil {
 	if err == dgman.ErrNodeNotFound {
@@ -314,7 +315,7 @@ if err != nil {
 fmt.Println(user)
 ```
 
-### Get by query
+#### Get by query
 
 ```go
 users := []User{}
@@ -340,12 +341,42 @@ if err != nil {
 fmt.Println(users)
 ```
 
+#### Get by filter query
+
+You can also combine `Filter` with `Query`.
+
+```go
+users := []User{}
+// get nodes with node type `user` that matches filter
+err := dgman.Get(ctx, tx, &users).
+	Vars("getUsers($name: string)", map[string]string{"$name": "wildan"}). // function defintion and Graphql variables
+	Filter("allofterms(name, $name)").
+	Query(`{
+		uid
+		expand(_all_) {
+			uid
+			expand(_all_)
+		}
+	}`). // dgraph query portion (without root function)
+	OrderAsc("name"). // ordering ascending by predicate
+	OrderDesc("dob"). // multiple ordering is allowed
+	First(10). // get first 10 nodes from result
+	Nodes() // get all nodes from the prepared query
+if err != nil {
+}
+
+// slice will be populated if found
+fmt.Println(users)
+```
+
 ### Delete Helper
+
+#### Delete Nodes
 
 Delete helpers can be used to simplify deleting nodes that matches a query, using the same query format as [Query Helpers](#query-helpers).
 
 ```go
-query := `@filter(allofterms(name, $name)) {
+query := `@filter() {
 	uid
 	expand(_all_) {
 		uid
@@ -367,6 +398,21 @@ if err != nil {
 fmt.Println(deletedUids)
 ```
 
+#### Delete Edges
+
+For deleting edges, you only need to specify node UID, edge predicate, and edge UIDs
+
+```go
+err := dgman.Delete(ctx, tx, &User{}, dgman.MutateOptions{CommitNow: true}).
+	Edge("0x12", "schools", "0x13", "0x14")
+```
+
+If no edge UIDs are specified, all edges of the specified predicate will be deleted.
+
+```go
+err := dgman.Delete(ctx, tx, &User{}, dgman.MutateOptions{CommitNow: true}).
+	Edge("0x12", "schools")
+```
+
 ## TODO
 - Filter generator
-- Deleting edges

@@ -158,3 +158,80 @@ func TestDeleteQuery(t *testing.T) {
 
 	assert.Len(t, all, 1)
 }
+
+func TestDeleteEdge(t *testing.T) {
+	user := User{
+		Name:     "wildan",
+		Username: "wildan",
+		Email:    "wildan2711@gmail.com",
+		Schools: []School{
+			School{
+				Name: "wildan's school",
+			},
+			School{
+				Name: "wildan's second school",
+			},
+			School{
+				Name: "wildan's third school",
+			},
+			School{
+				Name: "wildan's fourth school",
+			},
+		},
+	}
+
+	c := newDgraphClient()
+	if _, err := CreateSchema(c, &User{}); err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	tx := c.NewTxn()
+
+	err := Create(context.Background(), tx, &user, MutateOptions{CommitNow: true})
+	if err != nil {
+		t.Error(err)
+	}
+
+	user = User{}
+	err = Get(context.Background(), c.NewTxn(), &user).
+		All(1).
+		Node()
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, user.Schools, 4)
+
+	err = Delete(context.Background(), c.NewTxn(), &user, MutateOptions{CommitNow: true}).
+		Edge(user.UID, "schools", user.Schools[0].UID)
+	if err != nil {
+		t.Error(err)
+	}
+
+	user = User{}
+	err = Get(context.Background(), c.NewTxn(), &user).
+		All(1).
+		Node()
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, user.Schools, 3)
+
+	err = Delete(context.Background(), c.NewTxn(), &user, MutateOptions{CommitNow: true}).
+		Edge(user.UID, "schools")
+	if err != nil {
+		t.Error(err)
+	}
+
+	user = User{}
+	err = Get(context.Background(), c.NewTxn(), &user).
+		All(1).
+		Node()
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, user.Schools, 0)
+}

@@ -36,7 +36,7 @@ type TestModel struct {
 
 type TestEdge struct {
 	UID   string `json:"uid"`
-	Level string `json"level"`
+	Level string `json:"level"`
 }
 
 func TestGetByUID(t *testing.T) {
@@ -199,13 +199,74 @@ func TestGetByQuery(t *testing.T) {
 
 	var dst TestModel
 	tx = c.NewTxn()
-	q := Get(ctx, tx, &dst).Query(`@filter(allofterms(name, "wildan")) {
+	q := Get(ctx, tx, &dst).
+		Filter(`allofterms(name, "wildan")`).
+		Query(`{
 		uid
 		expand(_all_) {
 			uid
 			expand(_all_)
 		}
 	}`)
+	log.Println(q)
+	if err := q.Node(); err != nil {
+		t.Error(err)
+	}
+
+	assert.Equal(t, dst.UID, source.UID)
+	assert.Len(t, dst.Edges, 1)
+	assert.Equal(t, dst.Edges[0].UID, source2.UID)
+	assert.Equal(t, dst.Edges[0].Level, source2.Level)
+}
+
+func TestGetAllWithDepth(t *testing.T) {
+	source := TestModel{
+		Name:    "wildan anjing",
+		Address: "Beverly Hills",
+		Age:     17,
+	}
+
+	c := newDgraphClient()
+	if _, err := CreateSchema(c, &TestModel{}); err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	tx := c.NewTxn()
+
+	ctx := context.Background()
+
+	err := Create(ctx, tx, &source)
+	if err != nil {
+		t.Error(err)
+	}
+	tx.Commit(ctx)
+
+	source2 := TestEdge{
+		Level: "one",
+	}
+
+	tx = c.NewTxn()
+	err = Create(ctx, tx, &source2)
+	if err != nil {
+		t.Error(err)
+	}
+	tx.Commit(ctx)
+
+	source.Edges = []TestEdge{source2}
+
+	tx = c.NewTxn()
+	err = Mutate(ctx, tx, &source)
+	if err != nil {
+		t.Error(err)
+	}
+	tx.Commit(ctx)
+
+	var dst TestModel
+	tx = c.NewTxn()
+	q := Get(ctx, tx, &dst).
+		Filter(`allofterms(name, "wildan")`).
+		All(1)
 	log.Println(q)
 	if err := q.Node(); err != nil {
 		t.Error(err)
@@ -341,4 +402,34 @@ func TestOrder(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestExpandPredicate(t *testing.T) {
+	expectedDepthZero := `{
+		uid
+		expand(_all_)
+	}`
+
+	expectedDepthOne := `{
+		uid
+		expand(_all_) {
+			uid
+			expand(_all_)
+		}
+	}`
+
+	expectedDepthTwo := `{
+		uid
+		expand(_all_) {
+			uid
+			expand(_all_) {
+				uid
+				expand(_all_)
+			}
+		}
+	}`
+
+	assert.Equal(t, expectedDepthZero, expandPredicate(0))
+	assert.Equal(t, expectedDepthOne, expandPredicate(1))
+	assert.Equal(t, expectedDepthTwo, expandPredicate(2))
 }
