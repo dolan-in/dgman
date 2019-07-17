@@ -28,6 +28,10 @@ import (
 	"github.com/dgraph-io/dgo/protos/api"
 )
 
+var (
+	typePrefix = ""
+)
+
 // UniqueError returns the field and value that failed the unique node check
 type UniqueError struct {
 	NodeType string
@@ -98,8 +102,11 @@ func (m *mutateType) uidIndex() (int, error) {
 }
 
 // saveUID saves the UID to the passed model, field with uid json tag
-func (m *mutateType) saveUID(uids map[string]string, model interface{}) error {
+func (m *mutateType) saveUID(uids map[string]string, refVal ...*reflect.Value) error {
 	val := m.value
+	if len(refVal) != 0 {
+		val = refVal[0]
+	}
 
 	uidIndex, err := m.uidIndex()
 	if err != nil {
@@ -121,6 +128,9 @@ func (m *mutateType) saveUID(uids map[string]string, model interface{}) error {
 
 			el.Field(uidIndex).SetString(uid)
 		}
+	case reflect.Ptr:
+		*val = val.Elem()
+		fallthrough
 	case reflect.Struct:
 		field := val.Field(uidIndex)
 		for _, uid := range uids {
@@ -153,27 +163,6 @@ func mutate(ctx context.Context, tx *dgo.Txn, data interface{}, opt MutateOption
 	})
 }
 
-// Mutate is a shortcut to create mutations from data to be marshalled into JSON,
-// it will inject the node type from the Struct name converted to snake_case
-func Mutate(ctx context.Context, tx *dgo.Txn, data interface{}, options ...MutateOptions) error {
-	opt := MutateOptions{}
-	if len(options) > 0 {
-		opt = options[0]
-	}
-
-	mType, err := newMutateType(data)
-	if err != nil {
-		return err
-	}
-
-	assigned, err := mutate(ctx, tx, data, opt)
-	if err != nil {
-		return err
-	}
-
-	return mType.saveUID(assigned.Uids, data)
-}
-
 func mutateWithConstraints(ctx context.Context, tx *dgo.Txn, data interface{}, update bool, options ...MutateOptions) error {
 	opt := MutateOptions{}
 	if len(options) > 0 {
@@ -196,16 +185,42 @@ func mutateWithConstraints(ctx context.Context, tx *dgo.Txn, data interface{}, u
 
 	// if not update save uid
 	if !update {
-		return mType.saveUID(assigned.Uids, data)
+		return mType.saveUID(assigned.Uids)
 	}
 
 	return nil
 }
 
-// Create creates a node with field unique checking
+// Mutate is a shortcut to create mutations from data to be marshalled into JSON,
+// it will inject the node type from the Struct name converted to snake_case
+func Mutate(ctx context.Context, tx *dgo.Txn, data interface{}, options ...MutateOptions) error {
+	opt := MutateOptions{}
+	if len(options) > 0 {
+		opt = options[0]
+	}
+
+	mType, err := newMutateType(data)
+	if err != nil {
+		return err
+	}
+
+	assigned, err := mutate(ctx, tx, data, opt)
+	if err != nil {
+		return err
+	}
+
+	return mType.saveUID(assigned.Uids)
+}
+
+// Create create node(s) with field unique checking
 func Create(ctx context.Context, tx *dgo.Txn, data interface{}, options ...MutateOptions) error {
 	return mutateWithConstraints(ctx, tx, data, false, options...)
 }
+
+// // CreateOrGet create node(s) with a unique key, if a node with the unique key already exists, just return the node(s)
+// func CreateOrGet(ctx context.Context, tx *dgo.Txn, data interface{}, options ...MutateOptions) error {
+// 	return mutateWithConstraints(ctx, tx, data, false, options...)
+// }
 
 // Update updates a node by their UID with field unique checking
 func Update(ctx context.Context, tx *dgo.Txn, data interface{}, options ...MutateOptions) error {
@@ -339,26 +354,52 @@ func (m *mutateType) getAllUniqueFields(data interface{}, update bool) (map[int]
 		uniqueValueMap[uidIndex] = v.Field(uidIndex).Interface()
 	}
 
-	for i := 0; i < m.vType.NumField(); i++ {
-		field := v.Field(i)
-		s := m.schema[i]
+	uniqueType := reflect.TypeOf((*NodeUnique)(nil)).Elem()
+	if m.vType.Implements(uniqueType) {
+		nodeUnique := v.Interface().(NodeUnique)
 
-		if s.Unique {
-			val := field.Interface()
-			if isNull(val) {
-				// only check not null if not update
-				if !update {
-					if s.NotNull {
-						return nil, NotNullError{s.Predicate}
-					}
+		for _, pred := range nodeUnique.UniqueKeys() {
+			if predIndex, ok := m.predIndex[pred]; ok {
+				s := m.schema[predIndex]
+				val := v.Field(predIndex).Interface()
+				if null, err := notNullConstraint(s, val, update); err != nil {
+					return nil, err
+				} else if null {
+					continue // if not null is not set, don't check for unique if value is null
 				}
-				// if not null is not set, don't check for unique if value is null
-				continue
+				uniqueValueMap[predIndex] = val
 			}
-			uniqueValueMap[i] = val
+		}
+	} else {
+		for i := 0; i < m.vType.NumField(); i++ {
+			field := v.Field(i)
+			s := m.schema[i]
+
+			if s.Unique {
+				val := field.Interface()
+				if null, err := notNullConstraint(s, val, update); err != nil {
+					return nil, err
+				} else if null {
+					continue // if not null is not set, don't check for unique if value is null
+				}
+				uniqueValueMap[i] = val
+			}
 		}
 	}
 	return uniqueValueMap, nil
+}
+
+func notNullConstraint(schema *Schema, val interface{}, update bool) (null bool, err error) {
+	if isNull(val) {
+		// only check not null if not update
+		if !update {
+			if schema.NotNull {
+				return false, NotNullError{schema.Predicate}
+			}
+		}
+		return true, nil
+	}
+	return false, nil
 }
 
 func isNull(x interface{}) bool {
@@ -398,9 +439,7 @@ func marshalAndInjectType(data interface{}, disableInject bool) ([]byte, error) 
 	return jsonData, nil
 }
 
-// GetNodeType gets node type from NodeType() method of Node interface
-// if it doesn't implement it, get it from the struct name and convert to snake case
-func GetNodeType(data interface{}) string {
+func getNodeType(data interface{}) string {
 	// check if data implements node interface
 	if node, ok := data.(NodeType); ok {
 		return node.NodeType()
@@ -428,4 +467,20 @@ func GetNodeType(data interface{}) string {
 		}
 	}
 	return toSnakeCase(structName)
+}
+
+// GetNodeType gets node type from NodeType() method of Node interface
+// if it doesn't implement it, get it from the struct name and convert to snake case
+func GetNodeType(data interface{}) string {
+	rawNodeType := getNodeType(data)
+	if typePrefix == "" {
+		return rawNodeType
+	}
+	return fmt.Sprintf("%s.%s", typePrefix, rawNodeType)
+}
+
+// SetTypePrefix sets the global node type prefix, with the following format:
+// prefix.node_type
+func SetTypePrefix(prefix string) {
+	typePrefix = prefix
 }
