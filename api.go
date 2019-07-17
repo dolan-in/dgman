@@ -20,3 +20,7 @@ package dgman
 type NodeType interface {
 	NodeType() string
 }
+
+type NodeUnique interface {
+	UniqueKeys() []string
+}

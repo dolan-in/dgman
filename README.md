@@ -8,7 +8,7 @@
 ## Features
 - Create schemas and indexes from struct tags.
 - Detect conflicts from existing schema and defined schema.
-- Mutate Helpers (Create, Update).
+- Mutate Helpers (Create, Update, Upsert).
 - Autoinject [node type](https://docs.dgraph.io/howto/#giving-nodes-a-type) from struct.
 - Field unique checking (e.g: emails, username).
 - Query helpers.
@@ -24,8 +24,11 @@
   - [Mutate Helpers](#mutate-helpers)
     - [Mutate](#mutate)
     - [Node Types](#node-types)
+	  - [Prefixed Node Types](#prefixed-node-types)
     - [Create (Mutate with Unique Checking)](#create-mutate-with-unique-checking)
-    - [Update (Mutate Existing Node with Unique Checking)](#update-mutate-existing-node-with-unique-checking)
+    - [Upsert](#upsert)
+    - [Create Or Get](#create-or-get)
+    - [Update On Conflict](#update-on-conflict)
   - [Query Helpers](#query-helpers)
     - [Get by UID](#get-by-uid)
     - [Get by Filter](#get-by-filter)
@@ -179,6 +182,16 @@ func (c CustomNodeType) NodeType() string {
 }
 ```
 
+##### Prefixed Node Types
+
+To add a prefix for all subsequent node types, use `SetTypePrefix`, which will add a prefix, resulting a prefixed node type with the following format: `prefix.node_type`.
+
+```go
+SetTypePrefix("type")
+
+// node type becomes type.node_type
+```
+
 #### Create (Mutate with Unique Checking)
 
 If you need unique checking for a particular field of a node with a certain node type, e.g: Email of users, you can use the `Create` function.
@@ -229,9 +242,9 @@ This is similar to `Create`, but for existing nodes. So the `uid` field must be 
 type User struct {
 	UID 			string 		`json:"uid,omitempty"`
 	Name 			string 		`json:"name,omitempty"`
-	Email 		string 		`json:"email,omitempty" dgraph:"index=hash unique"`
-	Username 	string 		`json:"username,omitempty" dgraph:"index=term unique"`
-	Dob				time.Time	`json:"dob" dgraph:"index=day"`
+	Email 			string 		`json:"email,omitempty" dgraph:"index=hash unique"`
+	Username 		string 		`json:"username,omitempty" dgraph:"index=term unique"`
+	Dob			time.Time	`json:"dob" dgraph:"index=day"`
 }
 
 ...
@@ -276,6 +289,141 @@ type User struct {
 	// should be updated
 	fmt.Println(alexander)
 
+```
+
+#### Update (Mutate existing node with Unique Checking)
+
+This is similar to `Create`, but for existing nodes. So the `uid` field must be specified.
+
+```go
+type User struct {
+	UID 			string 		`json:"uid,omitempty"`
+	Name 			string 		`json:"name,omitempty"`
+	Email 			string 		`json:"email,omitempty" dgraph:"index=hash unique"`
+	Username 		string 		`json:"username,omitempty" dgraph:"index=term unique"`
+	Dob			time.Time	`json:"dob" dgraph:"index=day"`
+}
+
+...
+	users := []User{
+		User{
+			Name: "Alexander",
+			Email: "alexander@gmail.com",
+			Username: "alex123",
+		},
+		User{
+			Name: "Fergusso",
+			Email: "fergusso@gmail.com",
+			Username: "fergusso123",
+		},
+	}
+
+	if err := dgman.Create(context.Background(), c.NewTxn(), &users, dgman.MutateOptions{CommitNow: true}); err != nil {
+		panic(err)
+	}
+	
+	// try to update the user with existing username
+	alexander := users[0]
+	alexander.Username = "fergusso123"
+	// UID should have a value
+	fmt.Println(alexander.UID)
+
+	// will return a dgman.UniqueError
+	if err := dgman.Update(context.Background(), c.NewTxn(), &alexander, dgman.MutateOptions{CommitNow: true}); err != nil {
+		if uniqueErr, ok := err.(dgman.UniqueError); ok {
+			// will return duplicate error for username
+			fmt.Println(uniqueErr.Field, uniqueErr.Value)
+		}
+	}
+
+	// try to update the user with non-existing username
+	alexander.Username = "wildan"
+
+	if err := dgman.Update(context.Background(), c.NewTxn(), &alexander, dgman.MutateOptions{CommitNow: true}); err != nil {
+		panic(err)
+	}
+
+	// should be updated
+	fmt.Println(alexander)
+
+```
+
+#### Upsert
+
+Upsert inserts node(s) if it does not violate any unique key, otherwise update the node.
+
+```go
+type User struct {
+	UID 			string 		`json:"uid,omitempty"`
+	Name 			string 		`json:"name,omitempty"`
+	Email 			string 		`json:"email,omitempty" dgraph:"index=hash unique"`
+	Username 		string 		`json:"username,omitempty" dgraph:"index=term unique"`
+	Dob			time.Time	`json:"dob" dgraph:"index=day"`
+}
+
+...
+	users := []User{
+		User{
+			Name: "Alexander",
+			Email: "alexander@gmail.com",
+			Username: "alex123",
+		},
+		User{
+			Name: "Fergusso",
+			Email: "fergusso@gmail.com",
+			Username: "fergusso123",
+		},
+	}
+
+	if err := dgman.Upsert(context.Background(), c.NewTxn(), &users, dgman.MutateOptions{CommitNow: true}); err != nil {
+		panic(err)
+	}
+```
+
+#### Create Or Get
+
+`CreateOrGet` will create any nodes that does not violate any keys, otherwise just get the existing node.
+
+#### Update On Conflict
+
+`UpdateOnConflict` is the base for `Upsert` and `CreateOrGet`, which defines a callback when there is a unique key conflict.
+
+```go
+users := []*User{
+	&User{
+		Name:     "ajiba",
+		Username: "wildanjing",
+		Email:    "wildan2711@gmail.com",
+	},
+	&User{
+		Name:     "PooDiePie",
+		Username: "wildansyah",
+		Email:    "wildanodol2711@gmail.com",
+	},
+	&User{
+		Name:     "lalap",
+		Username: "lalap",
+		Email:    "lalap@gmail.com",
+	},
+}
+
+tx = c.NewTxn()
+
+cb := func(uniqueErr UniqueError, found, excluded interface{}) interface{} {
+	switch uniqueErr.Field {
+	case "email":
+		f := found.(*TestUnique)
+		e := excluded.(*TestUnique)
+		// just modify the username when email found
+		f.Username = e.Username
+		return found
+	}
+	// return nil to not update the node
+	return nil
+}
+if err := UpdateOnConflict(context.Background(), tx, &testDuplicate, cb); err != nil {
+
+}
 ```
 
 ### Query Helpers
