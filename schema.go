@@ -17,16 +17,18 @@
 package dgman
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"reflect"
 	"strings"
 
-	"github.com/dgraph-io/dgo/protos/api"
+	"github.com/dgraph-io/dgo/v2/protos/api"
 	"github.com/kr/logfmt"
 
-	"github.com/dgraph-io/dgo"
+	"github.com/dgraph-io/dgo/v2"
 )
 
 const tagName = "dgraph"
@@ -74,23 +76,56 @@ func (s Schema) String() string {
 	return schema + "."
 }
 
+// TypeMap maps a dgraph type with its predicates
+type TypeMap map[string]SchemaMap
+
+func (t TypeMap) String() string {
+	var buffer bytes.Buffer
+	for nodeType, predicates := range t {
+		buffer.WriteString("type ")
+		buffer.WriteString(nodeType)
+		buffer.WriteString(" {\n")
+		for predicate := range predicates {
+			buffer.WriteString("\t")
+			buffer.WriteString(predicate)
+			buffer.WriteString("\n")
+		}
+		buffer.WriteString("}\n")
+	}
+	return buffer.String()
+}
+
 // SchemaMap maps the underlying schema defined for a predicate
 type SchemaMap map[string]*Schema
 
 func (s SchemaMap) String() string {
-	schemaDef := ""
+	var buffer bytes.Buffer
 	for _, schema := range s {
-		schemaDef += schema.String() + "\n"
+		buffer.WriteString(schema.String())
+		buffer.WriteString("\n")
 	}
-	return schemaDef
+	return buffer.String()
 }
 
-func marshalSchema(initSchemaMap SchemaMap, models ...interface{}) SchemaMap {
+type TypeSchema struct {
+	Types  TypeMap
+	Schema SchemaMap
+}
+
+func (t *TypeSchema) String() string {
+	return t.Schema.String() + t.Types.String()
+}
+
+func marshalSchema(initSchemaMap SchemaMap, initTypeMap TypeMap, models ...interface{}) *TypeSchema {
 	// schema map maps predicates to its index/schema definition
 	// to make sure it is unique
 	schemaMap := make(SchemaMap)
 	if initSchemaMap != nil {
 		schemaMap = initSchemaMap
+	}
+	typeMap := make(TypeMap)
+	if initTypeMap != nil {
+		typeMap = initTypeMap
 	}
 
 	for _, model := range models {
@@ -100,11 +135,8 @@ func marshalSchema(initSchemaMap SchemaMap, models ...interface{}) SchemaMap {
 			continue
 		}
 
-		nodeType := toSnakeCase(current.Name())
-		schemaMap[nodeType] = &Schema{
-			Predicate: nodeType,
-			Type:      "string",
-		}
+		nodeType := GetNodeType(model)
+		typeMap[nodeType] = make(SchemaMap)
 
 		numFields := current.NumField()
 		for i := 0; i < numFields; i++ {
@@ -120,8 +152,8 @@ func marshalSchema(initSchemaMap SchemaMap, models ...interface{}) SchemaMap {
 			// don't parse struct composition fields (empty name), don't need to parse uid, don't parse facets
 			parse := s.Predicate != "" && s.Predicate != "uid" && !strings.Contains(s.Predicate, "|")
 			if parse {
-				// edge
-				if s.Type == "uid" {
+				// one-to-one and many-to-many edge
+				if s.Type == "uid" || s.Type == "[uid]" {
 					edgeType := field.Type
 
 					if edgeType.Kind() == reflect.Ptr {
@@ -129,9 +161,11 @@ func marshalSchema(initSchemaMap SchemaMap, models ...interface{}) SchemaMap {
 					}
 					// traverse node
 					edgePtr := reflect.New(edgeType)
-					marshalSchema(schemaMap, edgePtr.Interface())
+					marshalSchema(schemaMap, typeMap, edgePtr.Interface())
 				}
 
+				// each type should uniquely specify a predicate, that's why use a map on predicate
+				typeMap[nodeType][s.Predicate] = s
 				if schema != nil && schema.String() != s.String() {
 					log.Printf("conflicting schema %s, already defined as \"%s\", trying to define \"%s\"\n", s.Predicate, schema.String(), s.String())
 				} else {
@@ -140,7 +174,7 @@ func marshalSchema(initSchemaMap SchemaMap, models ...interface{}) SchemaMap {
 			}
 		}
 	}
-	return schemaMap
+	return &TypeSchema{Schema: schemaMap, Types: typeMap}
 }
 
 // TODO: handle go custom types, e.g: type Enum uint
@@ -158,23 +192,14 @@ func getSchemaType(fieldType reflect.Type) string {
 			sliceType = sliceType.Elem()
 		}
 
-		switch sliceType.Kind() {
-		case reflect.Struct:
-			if sliceType.PkgPath() == "time" {
-				schemaType = "[datetime]"
-			} else {
-				// assume is edge
-				schemaType = "uid"
-			}
-		default:
-			schemaType = fmt.Sprintf("[%s]", sliceType.Name())
-		}
+		schemaType = fmt.Sprintf("[%s]", getSchemaType(sliceType))
 	case reflect.Struct:
 		switch fieldType.PkgPath() {
 		case "time":
+			// golang std time
 			schemaType = "datetime"
 		default:
-			// need proper handling
+			// one-to-one relation
 			schemaType = "uid"
 		}
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
@@ -288,68 +313,165 @@ func fetchExistingSchema(c *dgo.Dgraph) ([]*Schema, error) {
 		}
 	`
 
-	tx := c.NewTxn()
+	tx := c.NewReadOnlyTxn()
 
 	resp, err := tx.Query(context.Background(), schemaQuery)
 	if err != nil {
 		return nil, err
 	}
 
-	schemas := make([]*Schema, len(resp.Schema))
-	for index, schema := range resp.Schema {
-		// temporary use own schema defition
-		// TODO: use dgo builtin *api.SchemaNode
-		schemas[index] = &Schema{
-			Predicate: schema.Predicate,
-			Type:      schema.Type,
-			Index:     schema.Index,
-			Reverse:   schema.Reverse,
-			Tokenizer: schema.Tokenizer,
-			List:      schema.List,
-			Count:     schema.Count,
-			Upsert:    schema.Upsert,
-		}
+	type schemaResponse struct {
+		Schema []*Schema `json:"schema"`
+	}
+	var schemas schemaResponse
+	if err = json.Unmarshal(resp.Json, &schemas); err != nil {
+		return nil, err
 	}
 
-	return schemas, nil
+	return schemas.Schema, nil
 }
 
-// CreateSchema generate indexes and schema from struct models,
-// returns the created schemap.
-func CreateSchema(c *dgo.Dgraph, models ...interface{}) (*SchemaMap, error) {
-	definedSchema := marshalSchema(nil, models...)
-	existingSchema, err := fetchExistingSchema(c)
+type typeQueryResponse struct {
+	Types []struct {
+		Fields []struct {
+			Name string `json:"name"`
+		} `json:"fields"`
+		Name string `json:"name"`
+	} `json:"types"`
+}
+
+func fetchExistingTypes(c *dgo.Dgraph, typeMap TypeMap) (TypeMap, error) {
+	// get keys of typeMap
+	keys := make([]string, 0, len(typeMap))
+	for key := range typeMap {
+		keys = append(keys, key)
+	}
+
+	typeQuery := "schema(type: [" + strings.Join(keys, ", ") + "]) {}"
+
+	tx := c.NewReadOnlyTxn()
+
+	resp, err := tx.Query(context.Background(), typeQuery)
 	if err != nil {
 		return nil, err
 	}
 
+	var typesResponse typeQueryResponse
+	if err = json.Unmarshal(resp.Json, &typesResponse); err != nil {
+		return nil, err
+	}
+
+	types := make(TypeMap)
+	for _, _type := range typesResponse.Types {
+		types[_type.Name] = make(SchemaMap)
+		for _, field := range _type.Fields {
+			types[_type.Name][field.Name] = &Schema{}
+		}
+	}
+
+	return types, nil
+}
+
+func cleanExistingSchema(c *dgo.Dgraph, schemaMap SchemaMap) error {
+	existingSchema, err := fetchExistingSchema(c)
+	if err != nil {
+		return err
+	}
+
 	for _, schema := range existingSchema {
-		if s, exists := definedSchema[schema.Predicate]; exists {
+		if s, exists := schemaMap[schema.Predicate]; exists {
 			if s.String() != schema.String() {
 				log.Printf("existing schema %s, already defined as \"%s\", trying to install \"%s\"\n", schema.Predicate, schema.String(), s.String())
 			}
 
-			delete(definedSchema, schema.Predicate)
+			delete(schemaMap, schema.Predicate)
 		}
 	}
 
-	if len(definedSchema) > 0 {
-		if err = c.Alter(context.Background(), &api.Operation{Schema: definedSchema.String()}); err != nil {
+	return nil
+}
+
+func cleanExistingTypes(c *dgo.Dgraph, typeMap TypeMap) error {
+	existingTypes, err := fetchExistingTypes(c, typeMap)
+	if err != nil {
+		return err
+	}
+
+	for _type := range existingTypes {
+		if _, exists := typeMap[_type]; exists {
+			log.Println("existing type", _type)
+
+			delete(typeMap, _type)
+		}
+	}
+
+	return nil
+}
+
+// CreateSchema generate indexes and schema from struct models,
+// returns the created schema map and types, does not update duplicate/conflict predicates.
+func CreateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
+	typeSchema := marshalSchema(nil, nil, models...)
+
+	err := cleanExistingSchema(c, typeSchema.Schema)
+	if err != nil {
+		return nil, err
+	}
+	if err = cleanExistingTypes(c, typeSchema.Types); err != nil {
+		return nil, err
+	}
+
+	alterString := typeSchema.String()
+	if alterString != "" {
+		if err = c.Alter(context.Background(), &api.Operation{Schema: alterString}); err != nil {
 			return nil, err
 		}
 	}
-	return &definedSchema, err
+	return typeSchema, nil
 }
 
 // MutateSchema generate indexes and schema from struct models,
 // attempt updates for schema and indexes.
-func MutateSchema(c *dgo.Dgraph, models ...interface{}) (*SchemaMap, error) {
-	definedSchema := marshalSchema(nil, models...)
+func MutateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
+	typeSchema := marshalSchema(nil, nil, models...)
 
-	if len(definedSchema) > 0 {
-		if err := c.Alter(context.Background(), &api.Operation{Schema: definedSchema.String()}); err != nil {
+	alterString := typeSchema.String()
+	if alterString != "" {
+		if err := c.Alter(context.Background(), &api.Operation{Schema: alterString}); err != nil {
 			return nil, err
 		}
 	}
-	return &definedSchema, nil
+	return typeSchema, nil
+}
+
+// GetNodeType gets node type from NodeType() method of Node interface
+// if it doesn't implement it, get it from the struct name
+func GetNodeType(data interface{}) string {
+	// check if data implements node interface
+	if node, ok := data.(NodeType); ok {
+		return node.NodeType()
+	}
+	// get node type from struct name
+	structName := ""
+	dataType := reflect.TypeOf(data)
+
+	switch dataType.Kind() {
+	case reflect.Struct:
+		structName = dataType.Name()
+	case reflect.Ptr, reflect.Slice:
+		dataType = dataType.Elem()
+		switch dataType.Kind() {
+		case reflect.Struct:
+			structName = dataType.Name()
+		case reflect.Ptr, reflect.Slice:
+			elem := dataType.Elem()
+
+			if elem.Kind() == reflect.Ptr {
+				elem = elem.Elem()
+			}
+
+			structName = elem.Name()
+		}
+	}
+	return structName
 }

@@ -45,6 +45,8 @@ type User struct {
 	Mobiles    []string     `json:"mobiles,omitempty"`
 	Schools    []School     `json:"schools,omitempty" dgraph:"count"`
 	SchoolsPtr []*School    `json:"schools_ptr,omitempty" dgraph:"count reverse"`
+	School     School       `json:"school" dgraph:"count reverse"`
+	SchoolPtr  *School      `json:"school_ptr" dgraph:"count reverse"`
 	*Anonymous
 }
 
@@ -72,10 +74,9 @@ type NewUser struct {
 }
 
 func TestMarshalSchema(t *testing.T) {
-	schema := marshalSchema(nil, User{})
+	typeSchema := marshalSchema(nil, nil, User{})
+	types, schema := typeSchema.Types, typeSchema.Schema
 	assert.Len(t, schema, 16)
-	assert.Contains(t, schema, "user")
-	assert.Contains(t, schema, "school")
 	assert.Contains(t, schema, "username")
 	assert.Contains(t, schema, "email")
 	assert.Contains(t, schema, "password")
@@ -90,22 +91,30 @@ func TestMarshalSchema(t *testing.T) {
 	assert.Contains(t, schema, "location")
 	assert.Contains(t, schema, "schools")
 	assert.Contains(t, schema, "schools_ptr")
+	assert.Contains(t, schema, "school")
+	assert.Contains(t, schema, "school_ptr")
 	assert.Equal(t, "username: string @index(hash) .", schema["username"].String())
 	assert.Equal(t, "email: string @index(hash) @upsert .", schema["email"].String())
 	assert.Equal(t, "password: string .", schema["password"].String())
 	assert.Equal(t, "name: string @index(term) .", schema["name"].String())
 	assert.Equal(t, "mobiles: [string] .", schema["mobiles"].String())
-	assert.Equal(t, "schools: uid @count .", schema["schools"].String())
-	assert.Equal(t, "schools_ptr: uid @count @reverse .", schema["schools_ptr"].String())
-	assert.Equal(t, "school: string .", schema["school"].String())
+	assert.Equal(t, "schools: [uid] @count .", schema["schools"].String())
+	assert.Equal(t, "schools_ptr: [uid] @count @reverse .", schema["schools_ptr"].String())
+	assert.Equal(t, "school: uid @count @reverse .", schema["school"].String())
+	assert.Equal(t, "school_ptr: uid @count @reverse .", schema["school_ptr"].String())
 	assert.Equal(t, "status: int .", schema["status"].String())
 	assert.Equal(t, "height: int .", schema["height"].String())
 	assert.Equal(t, "dob: datetime .", schema["dob"].String())
 	assert.Equal(t, "created: datetime .", schema["created"].String())
 	assert.Equal(t, "dates: [datetime] .", schema["dates"].String())
 	assert.Equal(t, "dates_ptr: [datetime] .", schema["dates_ptr"].String())
-	assert.Equal(t, "user: string .", schema["user"].String())
 	assert.Equal(t, "location: geo .", schema["location"].String())
+
+	assert.Len(t, types, 2)
+	assert.Contains(t, types, "User")
+	assert.Contains(t, types, "School")
+	assert.Len(t, types["User"], 15)
+	assert.Len(t, types["School"], 2)
 }
 
 func TestCreateSchema(t *testing.T) {
@@ -116,15 +125,23 @@ func TestCreateSchema(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	assert.Len(t, *firstSchema, 16)
+	assert.Len(t, firstSchema.Schema, 16)
+	assert.Len(t, firstSchema.Types, 2)
 
 	secondSchema, err := CreateSchema(c, &NewUser{})
 	if err != nil {
 		t.Error(err)
 	}
 	// conflicts should be ignored
-	// only one schema, the node type
-	assert.Len(t, *secondSchema, 1)
+	assert.Len(t, secondSchema.Schema, 0)
+	assert.Len(t, secondSchema.Types, 1)
+
+	firstSchema, err = CreateSchema(c, &User{})
+	if err != nil {
+		t.Error(err)
+	}
+	assert.Len(t, firstSchema.Schema, 0)
+	assert.Len(t, firstSchema.Types, 0)
 }
 
 func TestMutateSchema(t *testing.T) {
@@ -135,14 +152,16 @@ func TestMutateSchema(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	assert.Len(t, *firstSchema, 16)
+	assert.Len(t, firstSchema.Schema, 16)
+	assert.Len(t, firstSchema.Types, 2)
 
 	secondSchema, err := MutateSchema(c, &NewUser{})
 	if err != nil {
 		t.Error(err)
 	}
 
-	assert.Len(t, *secondSchema, 4)
+	assert.Len(t, secondSchema.Schema, 3)
+	assert.Len(t, secondSchema.Types, 1)
 
 	updatedSchema, err := fetchExistingSchema(c)
 	if err != nil {
@@ -150,7 +169,7 @@ func TestMutateSchema(t *testing.T) {
 	}
 
 	for _, schema := range updatedSchema {
-		m := *secondSchema
+		m := secondSchema.Schema
 		if s, ok := m[schema.Predicate]; ok {
 			assert.Equal(t, s, schema)
 		}
@@ -165,5 +184,5 @@ func TestOneToOneSchema(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	assert.Len(t, *schema, 4)
+	assert.Len(t, schema.Schema, 3)
 }

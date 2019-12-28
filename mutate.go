@@ -24,12 +24,8 @@ import (
 	"log"
 	"reflect"
 
-	"github.com/dgraph-io/dgo"
-	"github.com/dgraph-io/dgo/protos/api"
-)
-
-var (
-	typePrefix = ""
+	"github.com/dgraph-io/dgo/v2"
+	"github.com/dgraph-io/dgo/v2/protos/api"
 )
 
 // UniqueError returns the field and value that failed the unique node check
@@ -151,7 +147,7 @@ type MutateOptions struct {
 	CommitNow     bool
 }
 
-func mutate(ctx context.Context, tx *dgo.Txn, data interface{}, opt MutateOptions) (*api.Assigned, error) {
+func mutate(ctx context.Context, tx *dgo.Txn, data interface{}, opt MutateOptions) (*api.Response, error) {
 	out, err := marshalAndInjectType(data, opt.DisableInject)
 	if err != nil {
 		return nil, err
@@ -216,11 +212,6 @@ func Mutate(ctx context.Context, tx *dgo.Txn, data interface{}, options ...Mutat
 func Create(ctx context.Context, tx *dgo.Txn, data interface{}, options ...MutateOptions) error {
 	return mutateWithConstraints(ctx, tx, data, false, options...)
 }
-
-// // CreateOrGet create node(s) with a unique key, if a node with the unique key already exists, just return the node(s)
-// func CreateOrGet(ctx context.Context, tx *dgo.Txn, data interface{}, options ...MutateOptions) error {
-// 	return mutateWithConstraints(ctx, tx, data, false, options...)
-// }
 
 // Update updates a node by their UID with field unique checking
 func Update(ctx context.Context, tx *dgo.Txn, data interface{}, options ...MutateOptions) error {
@@ -437,50 +428,4 @@ func marshalAndInjectType(data interface{}, disableInject bool) ([]byte, error) 
 	}
 
 	return jsonData, nil
-}
-
-func getNodeType(data interface{}) string {
-	// check if data implements node interface
-	if node, ok := data.(NodeType); ok {
-		return node.NodeType()
-	}
-	// get node type from struct name and convert to snake case
-	structName := ""
-	dataType := reflect.TypeOf(data)
-
-	switch dataType.Kind() {
-	case reflect.Struct:
-		structName = dataType.Name()
-	case reflect.Ptr, reflect.Slice:
-		dataType = dataType.Elem()
-		switch dataType.Kind() {
-		case reflect.Struct:
-			structName = dataType.Name()
-		case reflect.Ptr, reflect.Slice:
-			elem := dataType.Elem()
-
-			if elem.Kind() == reflect.Ptr {
-				elem = elem.Elem()
-			}
-
-			structName = elem.Name()
-		}
-	}
-	return toSnakeCase(structName)
-}
-
-// GetNodeType gets node type from NodeType() method of Node interface
-// if it doesn't implement it, get it from the struct name and convert to snake case
-func GetNodeType(data interface{}) string {
-	rawNodeType := getNodeType(data)
-	if typePrefix == "" {
-		return rawNodeType
-	}
-	return fmt.Sprintf("%s.%s", typePrefix, rawNodeType)
-}
-
-// SetTypePrefix sets the global node type prefix, with the following format:
-// prefix.node_type
-func SetTypePrefix(prefix string) {
-	typePrefix = prefix
 }
