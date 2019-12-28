@@ -5,7 +5,7 @@ import (
 	"log"
 	"reflect"
 
-	"github.com/dgraph-io/dgo"
+	"github.com/dgraph-io/dgo/v2"
 )
 
 // OnConflictCallback defines the callback to update the data when an existing node matches the unique key

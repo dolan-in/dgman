@@ -167,11 +167,6 @@ func TestGetNodeType(t *testing.T) {
 	assert.Equal(t, "test_node", nodeTypePtr)
 	assert.Equal(t, "test_node", nodeTypeSlice)
 	assert.Equal(t, "test_node", nodeTypeSlicePtr)
-
-	SetTypePrefix("type")
-	nodeTypeStruct = GetNodeType(TestNode{})
-	assert.Equal(t, "type.test_node", nodeTypeStruct)
-	SetTypePrefix("")
 }
 
 func TestGetAllUniqueFields(t *testing.T) {

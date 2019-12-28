@@ -20,9 +20,9 @@ import (
 	"bytes"
 	"context"
 
-	"github.com/dgraph-io/dgo/protos/api"
+	"github.com/dgraph-io/dgo/v2/protos/api"
 
-	"github.com/dgraph-io/dgo"
+	"github.com/dgraph-io/dgo/v2"
 )
 
 type Deleter struct {
