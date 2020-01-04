@@ -19,9 +19,11 @@ package dgman
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type TestNode struct {
@@ -44,27 +46,27 @@ type TestUnique struct {
 }
 
 func (n TestCustomNode) NodeType() string {
-	return "custom_node_type"
+	return "CustomNodeType"
 }
 
 func TestAddNode(t *testing.T) {
-	testData := TestNode{"", "test"}
+	testData := &TestNode{"", "test"}
 
 	c := newDgraphClient()
 	defer dropAll(c)
 
-	tx := c.NewTxn()
+	tx := NewTxn(c)
 
-	err := Mutate(context.Background(), tx, &testData, MutateOptions{CommitNow: true})
+	err := tx.Mutate(testData, &MutateOptions{CommitNow: true})
 	if err != nil {
 		t.Error(err)
 	}
 
-	tx = c.NewTxn()
+	tx = NewTxn(c)
 
 	query := `
 	{
-		data(func: has(test_node)) {
+		data(func: type(TestNode)) {
 			uid
 			field
 		}
@@ -72,10 +74,10 @@ func TestAddNode(t *testing.T) {
 	`
 
 	var result struct {
-		Data []TestNode
+		Data []*TestNode
 	}
 
-	resp, err := tx.Query(context.Background(), query)
+	resp, err := tx.Txn().Query(context.Background(), query)
 	if err != nil {
 		t.Error(err)
 	}
@@ -88,23 +90,23 @@ func TestAddNode(t *testing.T) {
 	assert.Equal(t, testData.UID, result.Data[0].UID)
 }
 
-func TestAddCustomeNode(t *testing.T) {
+func TestAddCustomNode(t *testing.T) {
 	testData := TestCustomNode{"", "test"}
 
 	c := newDgraphClient()
 	defer dropAll(c)
 
-	tx := c.NewTxn()
-	err := Mutate(context.Background(), tx, &testData, MutateOptions{CommitNow: true})
+	tx := NewTxn(c)
+	err := tx.Mutate(&testData, &MutateOptions{CommitNow: true})
 	if err != nil {
 		t.Error(err)
 	}
 
-	tx = c.NewTxn()
+	tx = NewTxn(c)
 
 	query := `
 	query {
-		data(func: has(custom_node_type)) {
+		data(func: type(CustomNodeType)) {
 			uid
 			field
 		}
@@ -115,7 +117,7 @@ func TestAddCustomeNode(t *testing.T) {
 		Data []TestCustomNode
 	}
 
-	resp, err := tx.Query(context.Background(), query)
+	resp, err := tx.Txn().Query(context.Background(), query)
 	if err != nil {
 		t.Error(err)
 	}
@@ -136,7 +138,7 @@ func TestAddNodeType(t *testing.T) {
 	}
 
 	// object
-	expected := "{\"test_node\":\"\",\"field\":\"test\"}"
+	expected := "{\"dgraph.type\":\"TestNode\",\"field\":\"test\"}"
 	if string(jsonData) != expected {
 		t.Errorf("expected %s got %s", expected, jsonData)
 	}
@@ -147,7 +149,7 @@ func TestAddNodeType(t *testing.T) {
 	}
 
 	// array
-	expected = `[{"test_node":"","field":"test"},{"test_node":"","field":"test"}]`
+	expected = `[{"dgraph.type":"TestNode","field":"test"},{"dgraph.type":"TestNode","field":"test"}]`
 	jsonData, err = marshalAndInjectType(&testDataArray, false)
 	if err != nil {
 		t.Error(err)
@@ -155,18 +157,6 @@ func TestAddNodeType(t *testing.T) {
 	if string(jsonData) != expected {
 		t.Errorf("expected %s got %s", expected, jsonData)
 	}
-}
-
-func TestGetNodeType(t *testing.T) {
-	nodeTypeStruct := GetNodeType(TestNode{})
-	nodeTypePtr := GetNodeType(&TestNode{})
-	nodeTypeSlice := GetNodeType([]TestNode{})
-	nodeTypeSlicePtr := GetNodeType([]*TestNode{})
-
-	assert.Equal(t, "test_node", nodeTypeStruct)
-	assert.Equal(t, "test_node", nodeTypePtr)
-	assert.Equal(t, "test_node", nodeTypeSlice)
-	assert.Equal(t, "test_node", nodeTypeSlicePtr)
 }
 
 func TestGetAllUniqueFields(t *testing.T) {
@@ -186,6 +176,69 @@ func TestGetAllUniqueFields(t *testing.T) {
 		t.Error(err)
 	}
 	assert.Len(t, uniqueFields, 3)
+}
+
+func TestCreateUnique(t *testing.T) {
+	testUnique := []*TestUnique{
+		&TestUnique{
+			Name:     "H3h3",
+			Username: "wildan",
+			Email:    "wildan2711@gmail.com",
+			No:       1,
+		},
+		&TestUnique{
+			Name:     "PooDiePie",
+			Username: "wildansyah",
+			Email:    "wildansyah2711@gmail.com",
+			No:       2,
+		},
+		&TestUnique{
+			Name:     "Poopsie",
+			Username: "wildani",
+			Email:    "wildani@gmail.com",
+			No:       3,
+		},
+	}
+
+	c := newDgraphClient()
+	schema, err := CreateSchema(c, &TestUnique{})
+	if err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+	log.Println(schema)
+
+	tx := NewTxn(c)
+	err = tx.Create(&testUnique, &MutateOptions{CommitNow: true})
+	require.NoError(t, err)
+	assert.NotZero(t, testUnique[0].UID)
+	assert.NotZero(t, testUnique[1].UID)
+	assert.NotZero(t, testUnique[2].UID)
+
+	testUnique2 := &TestUnique{
+		Name:     "H3h3",
+		Username: "wildan",
+		Email:    "wildan2711@gmail.com",
+		No:       1,
+	}
+
+	tx = NewTxn(c)
+	err = tx.Create(testUnique2, &MutateOptions{CommitNow: true})
+	require.NoError(t, err)
+
+	assert.Zero(t, testUnique2.UID)
+
+	testUnique3 := &TestUnique{
+		Name:     "H343",
+		Username: "wildanjing",
+		Email:    "wildanjing2711@gmail.com",
+		No:       99,
+	}
+
+	tx = NewTxn(c)
+	err = tx.Create(testUnique3, &MutateOptions{CommitNow: true})
+	require.NoError(t, err)
+	assert.NotZero(t, testUnique3.UID)
 }
 
 func TestCreate(t *testing.T) {
@@ -216,13 +269,13 @@ func TestCreate(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	tx := c.NewTxn()
+	tx := NewTxn(c)
 
-	err := Create(context.Background(), tx, &testUnique)
+	err := tx.Create(&testUnique)
 	if err != nil {
 		t.Error(err)
 	}
-	if err := tx.Commit(context.Background()); err != nil {
+	if err := tx.Commit(); err != nil {
 		t.Error(err)
 	}
 
@@ -253,11 +306,11 @@ func TestCreate(t *testing.T) {
 		},
 	}
 
-	tx = c.NewTxn()
+	tx = NewTxn(c)
 
 	var duplicates []UniqueError
 	for _, data := range testDuplicate {
-		err := Create(context.Background(), tx, data)
+		err := tx.Create(data)
 		if err != nil {
 			if uniqueError, ok := err.(UniqueError); ok {
 				duplicates = append(duplicates, uniqueError)
@@ -266,7 +319,7 @@ func TestCreate(t *testing.T) {
 			t.Error(err)
 		}
 	}
-	if err := tx.Commit(context.Background()); err != nil {
+	if err := tx.Commit(); err != nil {
 		t.Error(err)
 	}
 
@@ -300,7 +353,8 @@ func TestCreateNull(t *testing.T) {
 		No:       4,
 	}
 
-	if err := Create(context.Background(), c.NewTxn(), &testUniqueNull, MutateOptions{CommitNow: true}); err != nil {
+	tx := NewTxn(c)
+	if err := tx.Create(&testUniqueNull, &MutateOptions{CommitNow: true}); err != nil {
 		t.Error(err)
 	}
 
@@ -311,31 +365,7 @@ func TestCreateNull(t *testing.T) {
 		No:       5,
 	}
 
-	if err := Create(context.Background(), c.NewTxn(), &testUniqueNullAgain, MutateOptions{CommitNow: true}); err != nil {
-		t.Error(err)
-	}
-}
-
-func TestCreateNotNull(t *testing.T) {
-	c := newDgraphClient()
-	if _, err := CreateSchema(c, &TestUnique{}); err != nil {
-		t.Error(err)
-	}
-	defer dropAll(c)
-
-	testNotNull := TestUnique{
-		Name:     "H3h3",
-		Username: "wildan2711",
-		Email:    "",
-		No:       4,
-	}
-
-	if err := Create(context.Background(), c.NewTxn(), &testNotNull, MutateOptions{CommitNow: true}); err != nil {
-		if nullErr, ok := err.(NotNullError); ok {
-			if nullErr.Field == "email" {
-				return
-			}
-		}
+	if err := tx.Create(&testUniqueNullAgain, &MutateOptions{CommitNow: true}); err != nil {
 		t.Error(err)
 	}
 }
@@ -362,22 +392,22 @@ func TestUpdate(t *testing.T) {
 		},
 	}
 
-	ctx := context.Background()
-	if err := Create(ctx, c.NewTxn(), &testUniques, MutateOptions{CommitNow: true}); err != nil {
+	tx := NewTxn(c)
+	if err := tx.Create(&testUniques, &MutateOptions{CommitNow: true}); err != nil {
 		t.Error(err)
 	}
 
 	testUpdate := testUniques[0]
 	testUpdate.Username = "wildan2711"
 
-	if err := Update(ctx, c.NewTxn(), testUpdate, MutateOptions{CommitNow: true}); err != nil {
+	if err := tx.Update(testUpdate, &MutateOptions{CommitNow: true}); err != nil {
 		t.Error(err)
 	}
 
 	testUpdate2 := testUniques[1]
 	testUpdate2.Username = "wildan2711"
 
-	if err := Update(ctx, c.NewTxn(), testUpdate2, MutateOptions{CommitNow: true}); err != nil {
+	if err := tx.Update(testUpdate2, &MutateOptions{CommitNow: true}); err != nil {
 		if uniqueErr, ok := err.(UniqueError); ok {
 			if uniqueErr.Field != "username" {
 				t.Error("wrong unique field")
@@ -430,13 +460,13 @@ func TestCreateCustomUniqueKeys(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	tx := c.NewTxn()
+	tx := NewTxn(c)
 
-	err := Create(context.Background(), tx, &testUnique)
+	err := tx.Create(&testUnique)
 	if err != nil {
 		t.Error(err)
 	}
-	if err := tx.Commit(context.Background()); err != nil {
+	if err := tx.Commit(); err != nil {
 		t.Error(err)
 	}
 
@@ -467,11 +497,11 @@ func TestCreateCustomUniqueKeys(t *testing.T) {
 		},
 	}
 
-	tx = c.NewTxn()
+	tx = NewTxn(c)
 
 	var duplicates []UniqueError
 	for _, data := range testDuplicate {
-		err := Create(context.Background(), tx, data)
+		err := tx.Create(data)
 		if err != nil {
 			if uniqueError, ok := err.(UniqueError); ok {
 				duplicates = append(duplicates, uniqueError)
@@ -480,7 +510,7 @@ func TestCreateCustomUniqueKeys(t *testing.T) {
 			t.Error(err)
 		}
 	}
-	if err := tx.Commit(context.Background()); err != nil {
+	if err := tx.Commit(); err != nil {
 		t.Error(err)
 	}
 
