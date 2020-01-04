@@ -187,7 +187,7 @@ func (q *Query) String() string {
 		if q.rootFunc == "" {
 			// if root function is not defined, query from node type
 			nodeType := GetNodeType(q.model)
-			queryBuf.WriteString("has(")
+			queryBuf.WriteString("type(")
 			queryBuf.WriteString(nodeType)
 			queryBuf.WriteByte(')')
 		} else {

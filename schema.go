@@ -17,7 +17,6 @@
 package dgman
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -43,7 +42,6 @@ type rawSchema struct {
 	Upsert     bool
 	Type       string
 	Unique     bool
-	Notnull    bool
 }
 
 type Schema struct {
@@ -56,7 +54,6 @@ type Schema struct {
 	List      bool
 	Upsert    bool
 	Unique    bool
-	NotNull   bool
 }
 
 func (s Schema) String() string {
@@ -64,7 +61,7 @@ func (s Schema) String() string {
 	if s.Index {
 		schema += fmt.Sprintf("@index(%s) ", strings.Join(s.Tokenizer, ","))
 	}
-	if s.Upsert {
+	if s.Upsert || s.Unique {
 		schema += "@upsert "
 	}
 	if s.Count {
@@ -80,7 +77,7 @@ func (s Schema) String() string {
 type TypeMap map[string]SchemaMap
 
 func (t TypeMap) String() string {
-	var buffer bytes.Buffer
+	var buffer strings.Builder
 	for nodeType, predicates := range t {
 		buffer.WriteString("type ")
 		buffer.WriteString(nodeType)
@@ -99,7 +96,7 @@ func (t TypeMap) String() string {
 type SchemaMap map[string]*Schema
 
 func (s SchemaMap) String() string {
-	var buffer bytes.Buffer
+	var buffer strings.Builder
 	for _, schema := range s {
 		buffer.WriteString(schema.String())
 		buffer.WriteString("\n")
@@ -113,7 +110,7 @@ type TypeSchema struct {
 }
 
 func (t *TypeSchema) String() string {
-	return t.Schema.String() + t.Types.String()
+	return strings.Join([]string{t.Schema.String(), t.Types.String()}, "\n")
 }
 
 func marshalSchema(initSchemaMap SchemaMap, initTypeMap TypeMap, models ...interface{}) *TypeSchema {
@@ -187,11 +184,6 @@ func getSchemaType(fieldType reflect.Type) string {
 	switch fieldType.Kind() {
 	case reflect.Slice:
 		sliceType := fieldType.Elem()
-
-		if sliceType.Kind() == reflect.Ptr {
-			sliceType = sliceType.Elem()
-		}
-
 		schemaType = fmt.Sprintf("[%s]", getSchemaType(sliceType))
 	case reflect.Struct:
 		switch fieldType.PkgPath() {
@@ -238,7 +230,6 @@ func parseDgraphTag(field *reflect.StructField) (*Schema, error) {
 		schema.Count = dgraphProps.Count
 		schema.Reverse = dgraphProps.Reverse
 		schema.Unique = dgraphProps.Unique
-		schema.NotNull = dgraphProps.Notnull
 
 		if dgraphProps.Predicate != "" {
 			schema.Predicate = dgraphProps.Predicate
@@ -275,20 +266,6 @@ func reflectType(model interface{}) (reflect.Type, error) {
 	}
 
 	return current, nil
-}
-
-func reflectValue(model interface{}) (*reflect.Value, error) {
-	current := reflect.ValueOf(model)
-
-	if current.Kind() == reflect.Ptr && !current.IsNil() {
-		current = current.Elem()
-	}
-
-	if current.Kind() != reflect.Struct && current.Kind() != reflect.Slice && current.Kind() != reflect.Interface {
-		return nil, fmt.Errorf("model \"%s\" passed for schema is not a struct or slice", current.Type().Name())
-	}
-
-	return &current, nil
 }
 
 func parseStructTag(tag string) (*rawSchema, error) {
@@ -408,7 +385,7 @@ func cleanExistingTypes(c *dgo.Dgraph, typeMap TypeMap) error {
 	return nil
 }
 
-// CreateSchema generate indexes and schema from struct models,
+// CreateSchema generate indexes, schema, and types from struct models,
 // returns the created schema map and types, does not update duplicate/conflict predicates.
 func CreateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
 	typeSchema := marshalSchema(nil, nil, models...)

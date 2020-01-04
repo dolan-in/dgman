@@ -33,8 +33,8 @@ type GeoLoc struct {
 type User struct {
 	UID        string       `json:"uid,omitempty"`
 	Name       string       `json:"name,omitempty" dgraph:"index=term"`
-	Username   string       `json:"username,omitempty" dgraph:"index=hash"`
-	Email      string       `json:"email,omitempty" dgraph:"index=hash upsert"`
+	Username   string       `json:"username,omitempty" dgraph:"index=hash unique"`
+	Email      string       `json:"email,omitempty" dgraph:"index=hash unique"`
 	Password   string       `json:"password,omitempty"`
 	Height     *int         `json:"height,omitempty"`
 	Dob        *time.Time   `json:"dob,omitempty"`
@@ -93,7 +93,7 @@ func TestMarshalSchema(t *testing.T) {
 	assert.Contains(t, schema, "schools_ptr")
 	assert.Contains(t, schema, "school")
 	assert.Contains(t, schema, "school_ptr")
-	assert.Equal(t, "username: string @index(hash) .", schema["username"].String())
+	assert.Equal(t, "username: string @index(hash) @upsert .", schema["username"].String())
 	assert.Equal(t, "email: string @index(hash) @upsert .", schema["email"].String())
 	assert.Equal(t, "password: string .", schema["password"].String())
 	assert.Equal(t, "name: string @index(term) .", schema["name"].String())
@@ -115,6 +115,18 @@ func TestMarshalSchema(t *testing.T) {
 	assert.Contains(t, types, "School")
 	assert.Len(t, types["User"], 15)
 	assert.Len(t, types["School"], 2)
+}
+
+func TestGetNodeType(t *testing.T) {
+	nodeTypeStruct := GetNodeType(TestNode{})
+	nodeTypePtr := GetNodeType(&TestNode{})
+	nodeTypeSlice := GetNodeType([]TestNode{})
+	nodeTypeSlicePtr := GetNodeType([]*TestNode{})
+
+	assert.Equal(t, "TestNode", nodeTypeStruct)
+	assert.Equal(t, "TestNode", nodeTypePtr)
+	assert.Equal(t, "TestNode", nodeTypeSlice)
+	assert.Equal(t, "TestNode", nodeTypeSlicePtr)
 }
 
 func TestCreateSchema(t *testing.T) {
