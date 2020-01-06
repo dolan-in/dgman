@@ -400,6 +400,7 @@ func TestUpdate(t *testing.T) {
 	testUpdate := testUniques[0]
 	testUpdate.Username = "wildan2711"
 
+	tx = NewTxn(c)
 	if err := tx.Update(testUpdate, &MutateOptions{CommitNow: true}); err != nil {
 		t.Error(err)
 	}
@@ -407,6 +408,7 @@ func TestUpdate(t *testing.T) {
 	testUpdate2 := testUniques[1]
 	testUpdate2.Username = "wildan2711"
 
+	tx = NewTxn(c)
 	if err := tx.Update(testUpdate2, &MutateOptions{CommitNow: true}); err != nil {
 		if uniqueErr, ok := err.(UniqueError); ok {
 			if uniqueErr.Field != "username" {

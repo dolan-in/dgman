@@ -113,18 +113,8 @@ func (t *TypeSchema) String() string {
 	return strings.Join([]string{t.Schema.String(), t.Types.String()}, "\n")
 }
 
-func marshalSchema(initSchemaMap SchemaMap, initTypeMap TypeMap, models ...interface{}) *TypeSchema {
-	// schema map maps predicates to its index/schema definition
-	// to make sure it is unique
-	schemaMap := make(SchemaMap)
-	if initSchemaMap != nil {
-		schemaMap = initSchemaMap
-	}
-	typeMap := make(TypeMap)
-	if initTypeMap != nil {
-		typeMap = initTypeMap
-	}
-
+// Marshal marshals passed models into type and schema definitions
+func (t *TypeSchema) Marshal(models ...interface{}) {
 	for _, model := range models {
 		current, err := reflectType(model)
 		if err != nil {
@@ -133,7 +123,7 @@ func marshalSchema(initSchemaMap SchemaMap, initTypeMap TypeMap, models ...inter
 		}
 
 		nodeType := GetNodeType(model)
-		typeMap[nodeType] = make(SchemaMap)
+		t.Types[nodeType] = make(SchemaMap)
 
 		numFields := current.NumField()
 		for i := 0; i < numFields; i++ {
@@ -145,7 +135,7 @@ func marshalSchema(initSchemaMap SchemaMap, initTypeMap TypeMap, models ...inter
 				continue
 			}
 
-			schema, _ := schemaMap[s.Predicate]
+			schema, _ := t.Schema[s.Predicate]
 			// don't parse struct composition fields (empty name), don't need to parse uid, don't parse facets
 			parse := s.Predicate != "" && s.Predicate != "uid" && !strings.Contains(s.Predicate, "|")
 			if parse {
@@ -158,20 +148,27 @@ func marshalSchema(initSchemaMap SchemaMap, initTypeMap TypeMap, models ...inter
 					}
 					// traverse node
 					edgePtr := reflect.New(edgeType)
-					marshalSchema(schemaMap, typeMap, edgePtr.Interface())
+					t.Marshal(edgePtr.Interface())
 				}
 
 				// each type should uniquely specify a predicate, that's why use a map on predicate
-				typeMap[nodeType][s.Predicate] = s
+				t.Types[nodeType][s.Predicate] = s
 				if schema != nil && schema.String() != s.String() {
 					log.Printf("conflicting schema %s, already defined as \"%s\", trying to define \"%s\"\n", s.Predicate, schema.String(), s.String())
 				} else {
-					schemaMap[s.Predicate] = s
+					t.Schema[s.Predicate] = s
 				}
 			}
 		}
 	}
-	return &TypeSchema{Schema: schemaMap, Types: typeMap}
+}
+
+// NewTypeSchema returns a new TypeSchema with allocated Schema and Types
+func NewTypeSchema() *TypeSchema {
+	return &TypeSchema{
+		Schema: make(SchemaMap),
+		Types:  make(TypeMap),
+	}
 }
 
 // TODO: handle go custom types, e.g: type Enum uint
@@ -368,33 +365,14 @@ func cleanExistingSchema(c *dgo.Dgraph, schemaMap SchemaMap) error {
 	return nil
 }
 
-func cleanExistingTypes(c *dgo.Dgraph, typeMap TypeMap) error {
-	existingTypes, err := fetchExistingTypes(c, typeMap)
-	if err != nil {
-		return err
-	}
-
-	for _type := range existingTypes {
-		if _, exists := typeMap[_type]; exists {
-			log.Println("existing type", _type)
-
-			delete(typeMap, _type)
-		}
-	}
-
-	return nil
-}
-
 // CreateSchema generate indexes, schema, and types from struct models,
 // returns the created schema map and types, does not update duplicate/conflict predicates.
 func CreateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
-	typeSchema := marshalSchema(nil, nil, models...)
+	typeSchema := NewTypeSchema()
+	typeSchema.Marshal(models...)
 
 	err := cleanExistingSchema(c, typeSchema.Schema)
 	if err != nil {
-		return nil, err
-	}
-	if err = cleanExistingTypes(c, typeSchema.Types); err != nil {
 		return nil, err
 	}
 
@@ -408,9 +386,10 @@ func CreateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
 }
 
 // MutateSchema generate indexes and schema from struct models,
-// attempt updates for schema and indexes.
+// attempt updates for type, schema, and indexes.
 func MutateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
-	typeSchema := marshalSchema(nil, nil, models...)
+	typeSchema := NewTypeSchema()
+	typeSchema.Marshal(models...)
 
 	alterString := typeSchema.String()
 	if alterString != "" {
