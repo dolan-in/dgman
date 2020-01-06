@@ -74,7 +74,8 @@ type NewUser struct {
 }
 
 func TestMarshalSchema(t *testing.T) {
-	typeSchema := marshalSchema(nil, nil, User{})
+	typeSchema := NewTypeSchema()
+	typeSchema.Marshal(&User{})
 	types, schema := typeSchema.Types, typeSchema.Schema
 	assert.Len(t, schema, 16)
 	assert.Contains(t, schema, "username")

@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"reflect"
 	"strings"
 
@@ -184,6 +185,7 @@ func mutateWithConstraints(ctx context.Context, tx *dgo.Txn, data interface{}, u
 	if err != nil {
 		return err
 	}
+	log.Println(assigned)
 
 	// if not update save uid
 	if !update {
@@ -227,9 +229,19 @@ func (m *mutateType) generateQueryConditions(data interface{}, index int, update
 		return "", "", err
 	}
 
+	uidIndex, err := m.uidIndex()
+	if err != nil {
+		return "", "", err
+	}
+
 	queries := make([]string, 0, len(uniqueFields))
 	conditions := make([]string, 0, len(uniqueFields))
 	for schemaIndex, value := range uniqueFields {
+		if schemaIndex == uidIndex {
+			// don't need to filter uid in query
+			continue
+		}
+
 		jsonValue, err := json.Marshal(value)
 		if err != nil {
 			return "", "", err
@@ -241,7 +253,17 @@ func (m *mutateType) generateQueryConditions(data interface{}, index int, update
 		queries = append(queries, fmt.Sprintf("\t%s as var(func: type(%s)) @filter(eq(%s, %s))", queryIndex, nodeType, schema.Predicate, jsonValue))
 		conditions = append(conditions, fmt.Sprintf("eq(len(%s), 0)", queryIndex))
 	}
-	return strings.Join(queries, "\n"), fmt.Sprintf("@if(%s)", strings.Join(conditions, " AND ")), nil
+
+	conditionString := strings.Join(conditions, " AND ")
+	if conditionString != "" {
+		if update {
+			conditionString = fmt.Sprintf("@if(uid(%s) OR (%s))", uniqueFields[uidIndex], conditionString)
+		} else {
+			conditionString = fmt.Sprintf("@if(%s)", conditionString)
+		}
+	}
+
+	return strings.Join(queries, "\n"), conditionString, nil
 }
 
 // TODO: return UniqueError when a node already exist based on unique fields
