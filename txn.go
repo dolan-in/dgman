@@ -70,6 +70,22 @@ func (t *TxnContext) Update(data interface{}, options ...*MutateOptions) error {
 	return mutateWithConstraints(t.ctx, t.txn, data, true, options...)
 }
 
+// Delete prepares a delete mutation using a query
+func (t *TxnContext) Delete(model interface{}, opt ...*MutateOptions) *Deleter {
+	mutateOpt := &MutateOptions{}
+	if len(opt) > 0 {
+		mutateOpt = opt[0]
+	}
+
+	q := &Query{ctx: t.ctx, tx: t.txn, model: model}
+	return &Deleter{q: q, ctx: t.ctx, tx: t.txn, mutateOpt: mutateOpt}
+}
+
+// Get prepares a query for a model
+func (t *TxnContext) Get(model interface{}) *Query {
+	return &Query{ctx: t.ctx, tx: t.txn, model: model}
+}
+
 // NewTxnContext creates a new transaction coupled with a context
 func NewTxnContext(ctx context.Context, c *dgo.Dgraph) *TxnContext {
 	return &TxnContext{
@@ -81,4 +97,17 @@ func NewTxnContext(ctx context.Context, c *dgo.Dgraph) *TxnContext {
 // NewTxn creates a new transaction
 func NewTxn(c *dgo.Dgraph) *TxnContext {
 	return NewTxnContext(context.Background(), c)
+}
+
+// NewReadOnlyTxnContext creates a new read only transaction coupled with a context
+func NewReadOnlyTxnContext(ctx context.Context, c *dgo.Dgraph) *TxnContext {
+	return &TxnContext{
+		txn: c.NewReadOnlyTxn(),
+		ctx: ctx,
+	}
+}
+
+// NewReadOnlyTxn creates a new read only transaction
+func NewReadOnlyTxn(c *dgo.Dgraph) *TxnContext {
+	return NewReadOnlyTxnContext(context.Background(), c)
 }

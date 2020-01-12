@@ -21,7 +21,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"reflect"
 	"strings"
 
@@ -139,7 +138,11 @@ func (m *mutateType) saveUID(uids map[string]string, refVal ...*reflect.Value) e
 		if exists {
 			el.Field(uidIndex).SetString(uid)
 		} else {
-			el.Field(uidIndex).SetString("") // don't return node alias if uid not assigned
+			val := el.Field(uidIndex).String()
+			if val[0] == '_' {
+				// don't return node alias if uid not assigned
+				el.Field(uidIndex).SetString("")
+			}
 		}
 	}
 
@@ -185,7 +188,6 @@ func mutateWithConstraints(ctx context.Context, tx *dgo.Txn, data interface{}, u
 	if err != nil {
 		return err
 	}
-	log.Println(assigned)
 
 	// if not update save uid
 	if !update {
@@ -270,7 +272,7 @@ func (m *mutateType) generateQueryConditions(data interface{}, index int, update
 func (m *mutateType) generateRequest(data interface{}, update bool, opt *MutateOptions) (req *api.Request, err error) {
 	// reflected value must be a slice
 	len := m.value.Len()
-	queries := make([]string, len)
+	queries := make([]string, 0, len)
 	mutations := make([]*api.Mutation, len)
 	for i := 0; i < len; i++ {
 		v := m.value.Index(i)
@@ -285,15 +287,22 @@ func (m *mutateType) generateRequest(data interface{}, update bool, opt *MutateO
 			return nil, err
 		}
 
-		queries[i] = query
+		if query != "" {
+			queries = append(queries, query)
+		}
 		mutations[i] = &api.Mutation{
 			Cond:    condition,
 			SetJson: setJSON,
 		}
 	}
 
+	queryString := strings.Join(queries, "\n")
+	if queryString != "" {
+		queryString = fmt.Sprintf("{\n%s\n}", queryString)
+	}
+
 	return &api.Request{
-		Query:     fmt.Sprintf("{\n%s\n}", strings.Join(queries, "\n")),
+		Query:     queryString,
 		Mutations: mutations,
 		CommitNow: opt.CommitNow,
 	}, nil
