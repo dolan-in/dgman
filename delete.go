@@ -30,7 +30,7 @@ type Deleter struct {
 	tx        *dgo.Txn
 	model     interface{}
 	q         *Query
-	mutateOpt MutateOptions
+	mutateOpt *MutateOptions
 }
 
 func (d *Deleter) Query(query string) *Deleter {
@@ -211,15 +211,4 @@ func traverseUIDs(uids *[]string, model map[string]interface{}) {
 
 func (d *Deleter) String() string {
 	return d.q.String()
-}
-
-// Delete prepares a delete mutation using a query
-func Delete(ctx context.Context, tx *dgo.Txn, model interface{}, opt ...MutateOptions) *Deleter {
-	mutateOpt := MutateOptions{}
-	if len(opt) > 0 {
-		mutateOpt = opt[0]
-	}
-
-	q := &Query{ctx: ctx, tx: tx, model: model}
-	return &Deleter{q: q, ctx: ctx, tx: tx, mutateOpt: mutateOpt}
 }

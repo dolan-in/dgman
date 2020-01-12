@@ -39,7 +39,7 @@ type User struct {
 	Height     *int         `json:"height,omitempty"`
 	Dob        *time.Time   `json:"dob,omitempty"`
 	Status     EnumType     `json:"status,omitempty" dgraph:"type=int"`
-	Created    time.Time    `json:"created,omitempty"`
+	Created    *time.Time   `json:"created,omitempty"`
 	Dates      []time.Time  `json:"dates,omitempty"`
 	DatesPtr   []*time.Time `json:"dates_ptr,omitempty"`
 	Mobiles    []string     `json:"mobiles,omitempty"`
@@ -154,7 +154,7 @@ func TestCreateSchema(t *testing.T) {
 		t.Error(err)
 	}
 	assert.Len(t, firstSchema.Schema, 0)
-	assert.Len(t, firstSchema.Types, 0)
+	assert.Len(t, firstSchema.Types, 2)
 }
 
 func TestMutateSchema(t *testing.T) {

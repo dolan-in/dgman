@@ -73,7 +73,7 @@ func (q *Query) UID(uid string) *Query {
 }
 
 func expandPredicate(depth int) string {
-	var buffer bytes.Buffer
+	var buffer strings.Builder
 
 	buffer.WriteString("{\n\t\tuid\n\t\texpand(_all_)")
 	for i := 0; i < depth; i++ {
@@ -253,11 +253,6 @@ func (q *Query) executeQuery() (result []byte, err error) {
 	}
 
 	return resp.Json, nil
-}
-
-// Get prepares a query for a model
-func Get(ctx context.Context, tx *dgo.Txn, model interface{}) *Query {
-	return &Query{ctx: ctx, tx: tx, model: model}
 }
 
 // Node marshals a single node to a single object of model,
