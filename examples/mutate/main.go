@@ -7,9 +7,9 @@ import (
 
 	"github.com/dolan-in/dgman"
 
-	"github.com/dgraph-io/dgo"
+	"github.com/dgraph-io/dgo/v2"
 
-	"github.com/dgraph-io/dgo/protos/api"
+	"github.com/dgraph-io/dgo/v2/protos/api"
 	"google.golang.org/grpc"
 )
 
@@ -76,7 +76,7 @@ func main() {
 		Username: "alex123",
 	}
 
-	if err := dgman.Mutate(context.Background(), c.NewTxn(), &user, dgman.MutateOptions{CommitNow: true}); err != nil {
+	if err := dgman.NewTxn(c).Mutate(&user, &dgman.MutateOptions{CommitNow: true}); err != nil {
 		panic(err)
 	}
 	fmt.Println(user.UID)
@@ -87,7 +87,7 @@ func main() {
 		Username: "alexa",
 	}
 
-	if err := dgman.Create(context.Background(), c.NewTxn(), &user, dgman.MutateOptions{CommitNow: true}); err != nil {
+	if err := dgman.NewTxn(c).Create(&user, &dgman.MutateOptions{CommitNow: true}); err != nil {
 		if uniqueErr, ok := err.(dgman.UniqueError); ok {
 			// check the duplicate field
 			fmt.Println(uniqueErr.Field, uniqueErr.Value)
