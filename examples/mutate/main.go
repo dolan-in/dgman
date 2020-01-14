@@ -88,7 +88,7 @@ func main() {
 	}
 
 	if err := dgman.NewTxn(c).Create(&user, &dgman.MutateOptions{CommitNow: true}); err != nil {
-		if uniqueErr, ok := err.(dgman.UniqueError); ok {
+		if uniqueErr, ok := err.(*dgman.UniqueError); ok {
 			// check the duplicate field
 			fmt.Println(uniqueErr.Field, uniqueErr.Value)
 		}

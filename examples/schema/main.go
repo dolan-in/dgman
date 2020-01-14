@@ -22,7 +22,7 @@ type User struct {
 	Password string     `json:"password,omitempty"`
 	Height   *int       `json:"height,omitempty"`
 	Dob      *time.Time `json:"dob,omitempty"` // will be inferred as dateTime schema type
-	Status   EnumType   `json:"status,omitempty"`
+	Status   EnumType   `json:"status,omitempty" dgraph:"type=int"`
 	Created  time.Time  `json:"created,omitempty" dgraph:"index=day"`     // will be inferred as dateTime schema type, with day index
 	Mobiles  []string   `json:"mobiles,omitempty"`                        // will be inferred as using the  [string] schema type, slices with primitive types will all be inferred as lists
 	Schools  []School   `json:"schools,omitempty" dgraph:"count reverse"` // defines an edge to other nodes, add count index, add reverse edges
@@ -37,10 +37,6 @@ type School struct {
 
 // EnumType If custom types are used, you need to specity the type in the ScalarType() method
 type EnumType int
-
-func (e EnumType) ScalarType() string {
-	return "int"
-}
 
 type GeoLoc struct {
 	Type  string    `json:"type"`
