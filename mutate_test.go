@@ -19,11 +19,9 @@ package dgman
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 type TestNode struct {
@@ -47,6 +45,10 @@ type TestUnique struct {
 
 func (n TestCustomNode) NodeType() string {
 	return "CustomNodeType"
+}
+
+func TestUniqueError_Error(t *testing.T) {
+	assert.EqualError(t, &UniqueError{NodeType: "User", Field: "username", Value: "wildanjing", UID: "0x1234"}, "User with username=wildanjing already exists at uid=0x1234")
 }
 
 func TestAddNode(t *testing.T) {
@@ -178,69 +180,6 @@ func TestGetAllUniqueFields(t *testing.T) {
 	assert.Len(t, uniqueFields, 3)
 }
 
-func TestCreateUnique(t *testing.T) {
-	testUnique := []*TestUnique{
-		&TestUnique{
-			Name:     "H3h3",
-			Username: "wildan",
-			Email:    "wildan2711@gmail.com",
-			No:       1,
-		},
-		&TestUnique{
-			Name:     "PooDiePie",
-			Username: "wildansyah",
-			Email:    "wildansyah2711@gmail.com",
-			No:       2,
-		},
-		&TestUnique{
-			Name:     "Poopsie",
-			Username: "wildani",
-			Email:    "wildani@gmail.com",
-			No:       3,
-		},
-	}
-
-	c := newDgraphClient()
-	schema, err := CreateSchema(c, &TestUnique{})
-	if err != nil {
-		t.Error(err)
-	}
-	defer dropAll(c)
-	log.Println(schema)
-
-	tx := NewTxn(c)
-	err = tx.Create(&testUnique, &MutateOptions{CommitNow: true})
-	require.NoError(t, err)
-	assert.NotZero(t, testUnique[0].UID)
-	assert.NotZero(t, testUnique[1].UID)
-	assert.NotZero(t, testUnique[2].UID)
-
-	testUnique2 := &TestUnique{
-		Name:     "H3h3",
-		Username: "wildan",
-		Email:    "wildan2711@gmail.com",
-		No:       1,
-	}
-
-	tx = NewTxn(c)
-	err = tx.Create(testUnique2, &MutateOptions{CommitNow: true})
-	require.NoError(t, err)
-
-	assert.Zero(t, testUnique2.UID)
-
-	testUnique3 := &TestUnique{
-		Name:     "H343",
-		Username: "wildanjing",
-		Email:    "wildanjing2711@gmail.com",
-		No:       99,
-	}
-
-	tx = NewTxn(c)
-	err = tx.Create(testUnique3, &MutateOptions{CommitNow: true})
-	require.NoError(t, err)
-	assert.NotZero(t, testUnique3.UID)
-}
-
 func TestCreate(t *testing.T) {
 	testUnique := []*TestUnique{
 		&TestUnique{
@@ -308,11 +247,11 @@ func TestCreate(t *testing.T) {
 
 	tx = NewTxn(c)
 
-	var duplicates []UniqueError
+	var duplicates []*UniqueError
 	for _, data := range testDuplicate {
 		err := tx.Create(data)
 		if err != nil {
-			if uniqueError, ok := err.(UniqueError); ok {
+			if uniqueError, ok := err.(*UniqueError); ok {
 				duplicates = append(duplicates, uniqueError)
 				continue
 			}
@@ -323,14 +262,13 @@ func TestCreate(t *testing.T) {
 		t.Error(err)
 	}
 
-	// TODO: enable when UniqueError passed
-	// assert.Len(t, duplicates, 3)
-	// assert.Equal(t, duplicates[0].Field, "email")
-	// assert.Equal(t, duplicates[0].Value, "wildan2711@gmail.com")
-	// assert.Equal(t, duplicates[1].Field, "username")
-	// assert.Equal(t, duplicates[1].Value, "wildansyah")
-	// assert.Equal(t, duplicates[2].Field, "no")
-	// assert.Equal(t, duplicates[2].Value, 3)
+	assert.Len(t, duplicates, 3)
+	assert.Equal(t, duplicates[0].Field, "email")
+	assert.Equal(t, duplicates[0].Value, "wildan2711@gmail.com")
+	assert.Equal(t, duplicates[1].Field, "username")
+	assert.Equal(t, duplicates[1].Value, "wildansyah")
+	assert.Equal(t, duplicates[2].Field, "no")
+	assert.Equal(t, duplicates[2].Value, 3)
 }
 
 func TestIsNull(t *testing.T) {
@@ -410,18 +348,16 @@ func TestUpdate(t *testing.T) {
 
 	tx = NewTxn(c)
 	if err := tx.Update(testUpdate2, &MutateOptions{CommitNow: true}); err != nil {
-		if uniqueErr, ok := err.(UniqueError); ok {
+		if uniqueErr, ok := err.(*UniqueError); ok {
 			if uniqueErr.Field != "username" {
 				t.Error("wrong unique field")
 			}
 		} else {
 			t.Error(err)
 		}
+	} else {
+		t.Error("must have unique error on username")
 	}
-	// TODO: enable when unique error passed
-	// } else {
-	// 	t.Error("must have unique error on username")
-	// }
 }
 
 type TestUniqueKeys struct {
@@ -503,11 +439,11 @@ func TestCreateCustomUniqueKeys(t *testing.T) {
 
 	tx = NewTxn(c)
 
-	var duplicates []UniqueError
+	var duplicates []*UniqueError
 	for _, data := range testDuplicate {
 		err := tx.Create(data)
 		if err != nil {
-			if uniqueError, ok := err.(UniqueError); ok {
+			if uniqueError, ok := err.(*UniqueError); ok {
 				duplicates = append(duplicates, uniqueError)
 				continue
 			}
@@ -518,12 +454,11 @@ func TestCreateCustomUniqueKeys(t *testing.T) {
 		t.Error(err)
 	}
 
-	// TODO: enable when UniqueError passed
-	// assert.Len(t, duplicates, 3)
-	// assert.Equal(t, duplicates[0].Field, "email")
-	// assert.Equal(t, duplicates[0].Value, "wildan2711@gmail.com")
-	// assert.Equal(t, duplicates[1].Field, "username")
-	// assert.Equal(t, duplicates[1].Value, "wildansyah")
-	// assert.Equal(t, duplicates[2].Field, "no")
-	// assert.Equal(t, duplicates[2].Value, 3)
+	assert.Len(t, duplicates, 3)
+	assert.Equal(t, duplicates[0].Field, "email")
+	assert.Equal(t, duplicates[0].Value, "wildan2711@gmail.com")
+	assert.Equal(t, duplicates[1].Field, "username")
+	assert.Equal(t, duplicates[1].Value, "wildansyah")
+	assert.Equal(t, duplicates[2].Field, "no")
+	assert.Equal(t, duplicates[2].Value, 3)
 }

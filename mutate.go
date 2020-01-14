@@ -21,11 +21,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/dgraph-io/dgo/v2"
 	"github.com/dgraph-io/dgo/v2/protos/api"
+	"github.com/pkg/errors"
 )
 
 // UniqueError returns the field and value that failed the unique node check
@@ -33,10 +36,11 @@ type UniqueError struct {
 	NodeType string
 	Field    string
 	Value    interface{}
+	UID      string
 }
 
-func (u UniqueError) Error() string {
-	return fmt.Sprintf("%s with %s %v already exists\n", u.NodeType, u.Field, u.Value)
+func (u *UniqueError) Error() string {
+	return fmt.Sprintf("%s with %s=%v already exists at uid=%s", u.NodeType, u.Field, u.Value, u.UID)
 }
 
 type mutateType struct {
@@ -44,7 +48,14 @@ type mutateType struct {
 	value     *reflect.Value
 	schema    map[int]*Schema // maps struct index to dgraph schema
 	predIndex map[string]int  // maps predicate struct index
+	nodeType  string
 }
+
+type node struct {
+	UID string `json:"uid"`
+}
+
+type mapNodes map[string][]node
 
 func reflectValue(model interface{}) (*reflect.Value, error) {
 	current := reflect.ValueOf(model)
@@ -72,6 +83,7 @@ func newMutateType(model interface{}) (*mutateType, error) {
 	mType := &mutateType{}
 	mType.schema = make(map[int]*Schema)
 	mType.predIndex = make(map[string]int)
+	mType.nodeType = GetNodeType(model)
 
 	vType, err := reflectType(model)
 	if err != nil {
@@ -189,6 +201,12 @@ func mutateWithConstraints(ctx context.Context, tx *dgo.Txn, data interface{}, u
 		return err
 	}
 
+	if assigned.Json != nil {
+		if err = mType.checkUnique(assigned.Json); err != nil {
+			return err
+		}
+	}
+
 	// if not update save uid
 	if !update {
 		return mType.saveUID(assigned.Uids)
@@ -224,8 +242,54 @@ func (m *mutateType) injectAlias() error {
 	return nil
 }
 
+func (m *mutateType) checkUnique(queryResponse []byte) error {
+	var mapNodes mapNodes
+	if err := json.Unmarshal(queryResponse, &mapNodes); err != nil {
+		return errors.Wrapf(err, `unmarshal queryResponse "%s"`, queryResponse)
+	}
+
+	for queryIndex, nodes := range mapNodes {
+		if len(nodes) == 0 {
+			continue
+		}
+
+		// queryIndex should have the format q_<sliceIndex>_<schemaIndex>
+		// e.g: q_0_2
+		queryIndexParts := strings.Split(queryIndex, "_")
+		if len(queryIndexParts) != 3 {
+			// hopefully no unrecognized queries found
+			return fmt.Errorf("unrecognized query")
+		}
+
+		sliceIndex, err := strconv.Atoi(queryIndexParts[1])
+		if err != nil {
+			return errors.Wrapf(err, "sliceIndex atoi %s", queryIndex)
+		}
+		schemaIndex, err := strconv.Atoi(queryIndexParts[2])
+		if err != nil {
+			return errors.Wrapf(err, "schemaIndex atoi %s", queryIndex)
+		}
+
+		schema := m.schema[schemaIndex]
+		val := m.value.Index(sliceIndex).Elem()
+		queryUID := nodes[0].UID
+		uidIndex, _ := m.uidIndex()
+
+		// only return unique error if not updating the user specified node
+		// i.e: UID field is set
+		if val.Field(uidIndex).String() != queryUID {
+			return &UniqueError{
+				NodeType: m.nodeType,
+				Field:    schema.Predicate,
+				Value:    val.Field(schemaIndex).Interface(),
+				UID:      nodes[0].UID,
+			}
+		}
+	}
+	return nil
+}
+
 func (m *mutateType) generateQueryConditions(data interface{}, index int, update bool) (query string, condition string, err error) {
-	nodeType := GetNodeType(data)
 	uniqueFields, err := m.getAllUniqueFields(data, update)
 	if err != nil {
 		return "", "", err
@@ -235,34 +299,35 @@ func (m *mutateType) generateQueryConditions(data interface{}, index int, update
 	if err != nil {
 		return "", "", err
 	}
-
+	log.Println(uniqueFields)
 	queries := make([]string, 0, len(uniqueFields))
 	conditions := make([]string, 0, len(uniqueFields))
 	for schemaIndex, value := range uniqueFields {
 		if schemaIndex == uidIndex {
-			// don't need to filter uid in query
 			continue
 		}
 
 		jsonValue, err := json.Marshal(value)
 		if err != nil {
-			return "", "", err
+			return "", "", errors.Wrapf(err, "marshal %v", value)
 		}
 
 		schema := m.schema[schemaIndex]
 		// index refers to the slice index of data
 		queryIndex := fmt.Sprintf("q_%d_%d", index, schemaIndex)
-		queries = append(queries, fmt.Sprintf("\t%s as var(func: type(%s)) @filter(eq(%s, %s))", queryIndex, nodeType, schema.Predicate, jsonValue))
-		conditions = append(conditions, fmt.Sprintf("eq(len(%s), 0)", queryIndex))
+		uidListIndex := fmt.Sprintf("u_%d_%d", index, schemaIndex)
+		filter := fmt.Sprintf("eq(%s, %s)", schema.Predicate, jsonValue)
+		if update {
+			// if update make sure not unique checking the current node
+			filter = fmt.Sprintf("NOT uid(%s) AND %s", uniqueFields[uidIndex], filter)
+		}
+		queries = append(queries, fmt.Sprintf("\t%s(func: type(%s)) @filter(%s) { \n%s as uid\nexpand(_all_)\n }", queryIndex, m.nodeType, filter, uidListIndex))
+		conditions = append(conditions, fmt.Sprintf("eq(len(%s), 0)", uidListIndex))
 	}
 
 	conditionString := strings.Join(conditions, " AND ")
 	if conditionString != "" {
-		if update {
-			conditionString = fmt.Sprintf("@if(uid(%s) OR (%s))", uniqueFields[uidIndex], conditionString)
-		} else {
-			conditionString = fmt.Sprintf("@if(%s)", conditionString)
-		}
+		conditionString = fmt.Sprintf("@if(%s)", conditionString)
 	}
 
 	return strings.Join(queries, "\n"), conditionString, nil
@@ -347,6 +412,9 @@ func (m *mutateType) getAllUniqueFields(data interface{}, update bool) (map[int]
 
 			if s.Unique {
 				val := field.Interface()
+				if update {
+					log.Println("update,", i, val)
+				}
 				if !isNull(val) {
 					// only check unique if not null/zero value
 					uniqueValueMap[i] = val
@@ -364,7 +432,7 @@ func isNull(x interface{}) bool {
 func marshalAndInjectType(data interface{}, disableInject bool) ([]byte, error) {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "marshal")
 	}
 
 	if !disableInject {
