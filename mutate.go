@@ -21,7 +21,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"reflect"
 	"strconv"
 	"strings"
@@ -299,7 +298,7 @@ func (m *mutateType) generateQueryConditions(data interface{}, index int, update
 	if err != nil {
 		return "", "", err
 	}
-	log.Println(uniqueFields)
+
 	queries := make([]string, 0, len(uniqueFields))
 	conditions := make([]string, 0, len(uniqueFields))
 	for schemaIndex, value := range uniqueFields {
@@ -321,7 +320,7 @@ func (m *mutateType) generateQueryConditions(data interface{}, index int, update
 			// if update make sure not unique checking the current node
 			filter = fmt.Sprintf("NOT uid(%s) AND %s", uniqueFields[uidIndex], filter)
 		}
-		queries = append(queries, fmt.Sprintf("\t%s(func: type(%s)) @filter(%s) { \n%s as uid\nexpand(_all_)\n }", queryIndex, m.nodeType, filter, uidListIndex))
+		queries = append(queries, fmt.Sprintf("\t%s(func: type(%s)) @filter(%s) { %s as uid }", queryIndex, m.nodeType, filter, uidListIndex))
 		conditions = append(conditions, fmt.Sprintf("eq(len(%s), 0)", uidListIndex))
 	}
 
@@ -412,9 +411,6 @@ func (m *mutateType) getAllUniqueFields(data interface{}, update bool) (map[int]
 
 			if s.Unique {
 				val := field.Interface()
-				if update {
-					log.Println("update,", i, val)
-				}
 				if !isNull(val) {
 					// only check unique if not null/zero value
 					uniqueValueMap[i] = val
