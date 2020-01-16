@@ -23,6 +23,7 @@ import (
 	"github.com/dgraph-io/dgo/v2/protos/api"
 
 	"github.com/dgraph-io/dgo/v2"
+	"github.com/pkg/errors"
 )
 
 type Deleter struct {
@@ -66,7 +67,7 @@ func (d *Deleter) Vars(funcDef string, vars map[string]string) *Deleter {
 }
 
 // RootFunc modifies the dgraph query root function, if not set,
-// the default is "has(node_type)"
+// the default is "type(NodeType)"
 func (d *Deleter) RootFunc(rootFunc string) *Deleter {
 	d.q.rootFunc = rootFunc
 	return d
@@ -130,14 +131,16 @@ func (d *Deleter) Edge(uid, edgePredicate string, edgeUIDs ...string) error {
 // Node deletes the first single root node from the query
 // including edge nodes that may be specified on the query
 func (d *Deleter) Node() (uids []string, err error) {
+	d.q.first = 1
+
 	result, err := d.q.executeQuery()
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "exec")
 	}
 
 	model := make(map[string]interface{})
 	if err := Node(result, &model); err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "parse query")
 	}
 
 	traverseUIDs(&uids, model)

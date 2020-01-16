@@ -75,9 +75,9 @@ type NewUser struct {
 
 func TestMarshalSchema(t *testing.T) {
 	typeSchema := NewTypeSchema()
-	typeSchema.Marshal(&User{})
+	typeSchema.Marshal(true, &User{})
 	types, schema := typeSchema.Types, typeSchema.Schema
-	assert.Len(t, schema, 16)
+	assert.Len(t, schema, 18)
 	assert.Contains(t, schema, "username")
 	assert.Contains(t, schema, "email")
 	assert.Contains(t, schema, "password")
@@ -94,6 +94,8 @@ func TestMarshalSchema(t *testing.T) {
 	assert.Contains(t, schema, "schools_ptr")
 	assert.Contains(t, schema, "school")
 	assert.Contains(t, schema, "school_ptr")
+	assert.Contains(t, schema, "field_1")
+	assert.Contains(t, schema, "field_2")
 	assert.Equal(t, "username: string @index(hash) @upsert .", schema["username"].String())
 	assert.Equal(t, "email: string @index(hash) @upsert .", schema["email"].String())
 	assert.Equal(t, "password: string .", schema["password"].String())
@@ -110,6 +112,8 @@ func TestMarshalSchema(t *testing.T) {
 	assert.Equal(t, "dates: [datetime] .", schema["dates"].String())
 	assert.Equal(t, "dates_ptr: [datetime] .", schema["dates_ptr"].String())
 	assert.Equal(t, "location: geo .", schema["location"].String())
+	assert.Equal(t, "field_1: string .", schema["field_1"].String())
+	assert.Equal(t, "field_2: string .", schema["field_2"].String())
 
 	assert.Len(t, types, 2)
 	assert.Contains(t, types, "User")
@@ -138,7 +142,7 @@ func TestCreateSchema(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	assert.Len(t, firstSchema.Schema, 16)
+	assert.Len(t, firstSchema.Schema, 18)
 	assert.Len(t, firstSchema.Types, 2)
 
 	secondSchema, err := CreateSchema(c, &NewUser{})
@@ -165,7 +169,7 @@ func TestMutateSchema(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	assert.Len(t, firstSchema.Schema, 16)
+	assert.Len(t, firstSchema.Schema, 18)
 	assert.Len(t, firstSchema.Types, 2)
 
 	secondSchema, err := MutateSchema(c, &NewUser{})

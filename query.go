@@ -117,7 +117,7 @@ func (q *Query) Vars(funcDef string, vars map[string]string) *Query {
 }
 
 // RootFunc modifies the dgraph query root function, if not set,
-// the default is "has(node_type)"
+// the default is "type(NodeType)"
 func (q *Query) RootFunc(rootFunc string) *Query {
 	q.rootFunc = rootFunc
 	return q

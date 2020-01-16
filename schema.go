@@ -114,7 +114,7 @@ func (t *TypeSchema) String() string {
 }
 
 // Marshal marshals passed models into type and schema definitions
-func (t *TypeSchema) Marshal(models ...interface{}) {
+func (t *TypeSchema) Marshal(parseType bool, models ...interface{}) {
 	for _, model := range models {
 		current, err := reflectType(model)
 		if err != nil {
@@ -123,11 +123,24 @@ func (t *TypeSchema) Marshal(models ...interface{}) {
 		}
 
 		nodeType := GetNodeType(model)
-		t.Types[nodeType] = make(SchemaMap)
+		if parseType {
+			t.Types[nodeType] = make(SchemaMap)
+		}
 
 		numFields := current.NumField()
 		for i := 0; i < numFields; i++ {
 			field := current.Field(i)
+
+			fieldType := field.Type
+			if fieldType.Kind() == reflect.Ptr {
+				fieldType = fieldType.Elem()
+			}
+
+			if fieldType.Kind() == reflect.Struct && field.Anonymous {
+				fieldPtr := reflect.New(fieldType)
+				t.Marshal(false, fieldPtr.Interface())
+				continue
+			}
 
 			s, err := parseDgraphTag(&field)
 			if err != nil {
@@ -136,23 +149,20 @@ func (t *TypeSchema) Marshal(models ...interface{}) {
 			}
 
 			schema, _ := t.Schema[s.Predicate]
-			// don't parse struct composition fields (empty name), don't need to parse uid, don't parse facets
+			// don't need to parse uid, don't parse facets
 			parse := s.Predicate != "" && s.Predicate != "uid" && !strings.Contains(s.Predicate, "|")
 			if parse {
 				// one-to-one and many-to-many edge
 				if s.Type == "uid" || s.Type == "[uid]" {
-					edgeType := field.Type
-
-					if edgeType.Kind() == reflect.Ptr {
-						edgeType = edgeType.Elem()
-					}
 					// traverse node
-					edgePtr := reflect.New(edgeType)
-					t.Marshal(edgePtr.Interface())
+					edgePtr := reflect.New(fieldType)
+					t.Marshal(true, edgePtr.Interface())
 				}
 
 				// each type should uniquely specify a predicate, that's why use a map on predicate
-				t.Types[nodeType][s.Predicate] = s
+				if parseType {
+					t.Types[nodeType][s.Predicate] = s
+				}
 				if schema != nil && schema.String() != s.String() {
 					log.Printf("conflicting schema %s, already defined as \"%s\", trying to define \"%s\"\n", s.Predicate, schema.String(), s.String())
 				} else {
@@ -369,7 +379,7 @@ func cleanExistingSchema(c *dgo.Dgraph, schemaMap SchemaMap) error {
 // returns the created schema map and types, does not update duplicate/conflict predicates.
 func CreateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
 	typeSchema := NewTypeSchema()
-	typeSchema.Marshal(models...)
+	typeSchema.Marshal(true, models...)
 
 	err := cleanExistingSchema(c, typeSchema.Schema)
 	if err != nil {
@@ -389,7 +399,7 @@ func CreateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
 // attempt updates for type, schema, and indexes.
 func MutateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
 	typeSchema := NewTypeSchema()
-	typeSchema.Marshal(models...)
+	typeSchema.Marshal(true, models...)
 
 	alterString := typeSchema.String()
 	if alterString != "" {
