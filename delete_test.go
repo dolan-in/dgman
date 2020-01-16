@@ -95,16 +95,28 @@ func TestDeleteFilter(t *testing.T) {
 }
 
 func TestDeleteQuery(t *testing.T) {
+	c := newDgraphClient()
+	if _, err := CreateSchema(c, &User{}); err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	school := School{
+		Name: "wildan's school",
+	}
+	tx := NewTxn(c)
+
+	err := tx.Create(&school, &MutateOptions{CommitNow: true})
+	if err != nil {
+		t.Error(err)
+	}
+
 	users := []*User{
 		&User{
 			Name:     "wildan",
 			Username: "wildan",
 			Email:    "wildan2711@gmail.com",
-			Schools: []School{
-				School{
-					Name: "wildan's school",
-				},
-			},
+			Schools:  []School{school},
 		},
 		&User{
 			Name:     "wildan",
@@ -118,15 +130,9 @@ func TestDeleteQuery(t *testing.T) {
 		},
 	}
 
-	c := newDgraphClient()
-	if _, err := CreateSchema(c, &User{}); err != nil {
-		t.Error(err)
-	}
-	defer dropAll(c)
+	tx = NewTxn(c)
 
-	tx := NewTxn(c)
-
-	err := tx.Create(&users)
+	err = tx.Create(&users)
 	if err != nil {
 		t.Error(err)
 	}
@@ -157,36 +163,112 @@ func TestDeleteQuery(t *testing.T) {
 	assert.Len(t, all, 1)
 }
 
-func TestDeleteEdge(t *testing.T) {
-	user := User{
-		Name:     "wildan",
-		Username: "wildan",
-		Email:    "wildan2711@gmail.com",
-		Schools: []School{
-			School{
-				Name: "wildan's school",
-			},
-			School{
-				Name: "wildan's second school",
-			},
-			School{
-				Name: "wildan's third school",
-			},
-			School{
-				Name: "wildan's fourth school",
-			},
-		},
-	}
-
+func TestDeleteQueryNode(t *testing.T) {
 	c := newDgraphClient()
 	if _, err := CreateSchema(c, &User{}); err != nil {
 		t.Error(err)
 	}
 	defer dropAll(c)
 
+	school := School{
+		Name: "wildan's school",
+	}
 	tx := NewTxn(c)
 
-	err := tx.Create(&user, &MutateOptions{CommitNow: true})
+	err := tx.Create(&school, &MutateOptions{CommitNow: true})
+	if err != nil {
+		t.Error(err)
+	}
+
+	users := []*User{
+		&User{
+			Name:     "wildan",
+			Username: "wildan",
+			Email:    "wildan2711@gmail.com",
+			Schools:  []School{school},
+		},
+		&User{
+			Name:     "wildan",
+			Username: "wildansyah",
+			Email:    "wildansyah2711@gmail.com",
+		},
+		&User{
+			Name:     "aha",
+			Username: "wildani",
+			Email:    "wildani@gmail.com",
+		},
+	}
+
+	tx = NewTxn(c)
+
+	err = tx.Create(&users)
+	if err != nil {
+		t.Error(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Error(err)
+	}
+	log.Println(users[0])
+
+	nodes, err := NewTxn(c).Delete(&User{}, &MutateOptions{CommitNow: true}).
+		Query(`@filter(eq(email, "wildan2711@gmail.com")) {
+			uid
+			schools {
+				uid
+			}
+		}`).
+		Node()
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, nodes, 2)
+
+	var all []*User
+	if err := NewTxn(c).Get(&all).All().Nodes(); err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, all, 2)
+}
+
+func TestDeleteEdge(t *testing.T) {
+	c := newDgraphClient()
+	if _, err := CreateSchema(c, &School{}, &User{}); err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	schools := []School{
+		School{
+			Name: "wildan's school",
+		},
+		School{
+			Name: "wildan's second school",
+		},
+		School{
+			Name: "wildan's third school",
+		},
+		School{
+			Name: "wildan's fourth school",
+		},
+	}
+
+	tx := NewTxn(c)
+
+	err := tx.Create(&schools, &MutateOptions{CommitNow: true})
+	if err != nil {
+		t.Error(err)
+	}
+
+	user := User{
+		Name:     "wildan",
+		Username: "wildan",
+		Email:    "wildan2711@gmail.com",
+		Schools:  schools,
+	}
+
+	err = NewTxn(c).Create(&user, &MutateOptions{CommitNow: true})
 	if err != nil {
 		t.Error(err)
 	}
