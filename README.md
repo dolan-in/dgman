@@ -9,7 +9,7 @@
 - Create schemas and indexes from struct tags.
 - Detect conflicts from existing schema and defined schema.
 - Mutate Helpers (Create, Update, Upsert).
-- Autoinject [node type](https://docs.dgraph.io/howto/#giving-nodes-a-type) from struct.
+- Autoinject [node type](https://docs.dgraph.io/query-language/#type-system) from struct.
 - Field unique checking (e.g: emails, username).
 - Query helpers.
 - Delete helper.
@@ -142,7 +142,7 @@ To overwrite/update index definitions, you can use the `MutateSchema` function, 
 
 #### Mutate
 
-Using the `Mutate` function, before sending a mutation, it will marshall a struct into JSON and injecting the Dgraph [node type](https://docs.dgraph.io/howto/#giving-nodes-a-type) ("dgraph.type" predicate).
+Using the `Mutate` function, before sending a mutation, it will marshall a struct into JSON and injecting the Dgraph [node type](https://docs.dgraph.io/query-language/#type-system) ("dgraph.type" predicate).
 
 ```go
 user := User{
