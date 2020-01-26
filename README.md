@@ -9,7 +9,7 @@
 - Create schemas and indexes from struct tags.
 - Detect conflicts from existing schema and defined schema.
 - Mutate Helpers (Create, Update, Upsert).
-- Autoinject [node type](https://docs.dgraph.io/howto/#giving-nodes-a-type) from struct.
+- Autoinject [node type](https://docs.dgraph.io/query-language/#type-system) from struct.
 - Field unique checking (e.g: emails, username).
 - Query helpers.
 - Delete helper.
@@ -142,7 +142,7 @@ To overwrite/update index definitions, you can use the `MutateSchema` function, 
 
 #### Mutate
 
-Using the `Mutate` function, before sending a mutation, it will marshal a struct into JSON and injecting a [node type](https://docs.dgraph.io/howto/#giving-nodes-a-type), for easier labelling nodes, or in SQL it would refer to the table.
+Using the `Mutate` function, before sending a mutation, it will marshall a struct into JSON and injecting the Dgraph [node type](https://docs.dgraph.io/query-language/#type-system) ("dgraph.type" predicate).
 
 ```go
 user := User{
@@ -159,7 +159,7 @@ if err := dgman.Mutate(context.Background(), c.NewTxn(), &user, dgman.MutateOpti
 fmt.Println(user.UID)
 ```
 
-The above will insert a node with the following JSON string, with the field `"user":""` added in:
+The above will insert a node with the following JSON string, with the field `"dgraph.type":"user"` added in:
 
 ```json
 {"user":"","email":"alexander@gmail.com","username":"alex123"}
@@ -167,7 +167,7 @@ The above will insert a node with the following JSON string, with the field `"us
 
 #### Node Types
 
-[Node types](https://docs.dgraph.io/howto/#giving-nodes-a-type) will be inferred from the struct name and converted into snake_case, so the `User` struct above would use `user` as its node type.
+[Node types](https://docs.dgraph.io/query-language/#type-system) will be inferred from the struct name.
 
 If you need to define a custom name for the node type, you can define the `NodeType() string` method on the struct.
 
@@ -182,16 +182,6 @@ func (c CustomNodeType) NodeType() string {
 }
 ```
 
-##### Prefixed Node Types
-
-To add a prefix for all subsequent node types, use `SetTypePrefix`, which will add a prefix, resulting a prefixed node type with the following format: `prefix.node_type`.
-
-```go
-SetTypePrefix("type")
-
-// node type becomes type.node_type
-```
-
 #### Create (Mutate with Unique Checking)
 
 If you need unique checking for a particular field of a node with a certain node type, e.g: Email of users, you can use the `Create` function.
@@ -202,8 +192,8 @@ To define a field to be unique, add `unique` in the `dgraph` tag on the struct d
 type User struct {
 	UID 			string `json:"uid,omitempty"`
 	Name 			string `json:"name,omitempty" dgraph:"index=term"`
-	Email 		string `json:"email,omitempty" dgraph:"index=hash unique"`
-	Username 	string `json:"username,omitempty" dgraph:"index=term unique"`
+	Email 			string `json:"email,omitempty" dgraph:"index=hash unique"`
+	Username 		string `json:"username,omitempty" dgraph:"index=term unique"`
 }
 
 ...
@@ -213,7 +203,10 @@ type User struct {
 		Username: "alex123",
 	}
 
-	if err := dgman.Create(context.Background(), c.NewTxn(), &user, dgman.MutateOptions{CommitNow: true}); err != nil {
+	// Create a transaction with context.Background() as the context
+	tx := dgman.NewTxnContext(context.Background(), c)
+	// pass true as the second parameter to commit now
+	if err := tx.Create(&user, true); err != nil {
 		panic(err)
 	}
 	
@@ -225,8 +218,9 @@ type User struct {
 	}
 
 	// will return a dgman.UniqueError
-	if err := dgman.Create(context.Background(), c.NewTxn(), &duplicateEmail, dgman.MutateOptions{CommitNow: true}); err != nil {
-		if uniqueErr, ok := err.(dgman.UniqueError); ok {
+	tx = dgman.NewTxnContext(context.Background(), c)
+	if err := tx.Create(&duplicateEmail, true); err != nil {
+		if uniqueErr, ok := err.(*dgman.UniqueError); ok {
 			// check the duplicate field
 			fmt.Println(uniqueErr.Field, uniqueErr.Value)
 		}
@@ -244,11 +238,11 @@ type User struct {
 	Name 			string 		`json:"name,omitempty"`
 	Email 			string 		`json:"email,omitempty" dgraph:"index=hash unique"`
 	Username 		string 		`json:"username,omitempty" dgraph:"index=term unique"`
-	Dob			time.Time	`json:"dob" dgraph:"index=day"`
+	Dob				time.Time	`json:"dob" dgraph:"index=day"`
 }
 
 ...
-	users := []User{
+	users := []*User{
 		User{
 			Name: "Alexander",
 			Email: "alexander@gmail.com",
@@ -261,7 +255,8 @@ type User struct {
 		},
 	}
 
-	if err := dgman.Create(context.Background(), c.NewTxn(), &users, dgman.MutateOptions{CommitNow: true}); err != nil {
+	tx := dgman.NewTxn(c)
+	if err := tx.Create(&users, true); err != nil {
 		panic(err)
 	}
 	
@@ -272,8 +267,9 @@ type User struct {
 	fmt.Println(alexander.UID)
 
 	// will return a dgman.UniqueError
-	if err := dgman.Update(context.Background(), c.NewTxn(), &alexander, dgman.MutateOptions{CommitNow: true}); err != nil {
-		if uniqueErr, ok := err.(dgman.UniqueError); ok {
+	tx := dgman.NewTxn(c)
+	if err := tx.Update(&alexander, true); err != nil {
+		if uniqueErr, ok := err.(*dgman.UniqueError); ok {
 			// will return duplicate error for username
 			fmt.Println(uniqueErr.Field, uniqueErr.Value)
 		}
@@ -282,7 +278,8 @@ type User struct {
 	// try to update the user with non-existing username
 	alexander.Username = "wildan"
 
-	if err := dgman.Update(context.Background(), c.NewTxn(), &alexander, dgman.MutateOptions{CommitNow: true}); err != nil {
+	tx = dgman.NewTxn(c)
+	if err := tx.Update(&alexander, true); err != nil {
 		panic(err)
 	}
 
@@ -301,11 +298,11 @@ type User struct {
 	Name 			string 		`json:"name,omitempty"`
 	Email 			string 		`json:"email,omitempty" dgraph:"index=hash unique"`
 	Username 		string 		`json:"username,omitempty" dgraph:"index=term unique"`
-	Dob			time.Time	`json:"dob" dgraph:"index=day"`
+	Dob				time.Time	`json:"dob" dgraph:"index=day"`
 }
 
 ...
-	users := []User{
+	users := []*User{
 		User{
 			Name: "Alexander",
 			Email: "alexander@gmail.com",
@@ -318,7 +315,8 @@ type User struct {
 		},
 	}
 
-	if err := dgman.Create(context.Background(), c.NewTxn(), &users, dgman.MutateOptions{CommitNow: true}); err != nil {
+	tx := dgman.NewTxn(c)
+	if err := tx.Create(&users, true); err != nil {
 		panic(err)
 	}
 	
@@ -329,8 +327,9 @@ type User struct {
 	fmt.Println(alexander.UID)
 
 	// will return a dgman.UniqueError
-	if err := dgman.Update(context.Background(), c.NewTxn(), &alexander, dgman.MutateOptions{CommitNow: true}); err != nil {
-		if uniqueErr, ok := err.(dgman.UniqueError); ok {
+	tx = dgman.NewTxn(c)
+	if err := tx.Update(&alexander, true); err != nil {
+		if uniqueErr, ok := err.(*dgman.UniqueError); ok {
 			// will return duplicate error for username
 			fmt.Println(uniqueErr.Field, uniqueErr.Value)
 		}
@@ -339,7 +338,8 @@ type User struct {
 	// try to update the user with non-existing username
 	alexander.Username = "wildan"
 
-	if err := dgman.Update(context.Background(), c.NewTxn(), &alexander, dgman.MutateOptions{CommitNow: true}); err != nil {
+	tx := dgman.NewTxn(c)
+	if err := tx.Update(&alexander, true); err != nil {
 		panic(err)
 	}
 
@@ -350,7 +350,7 @@ type User struct {
 
 #### Upsert
 
-Upsert inserts node(s) if it does not violate any unique key, otherwise update the node.
+`Upsert` updates a node if a node with a value of a specified predicate already exists, otherwise insert the node.
 
 ```go
 type User struct {
@@ -358,11 +358,11 @@ type User struct {
 	Name 			string 		`json:"name,omitempty"`
 	Email 			string 		`json:"email,omitempty" dgraph:"index=hash unique"`
 	Username 		string 		`json:"username,omitempty" dgraph:"index=term unique"`
-	Dob			time.Time	`json:"dob" dgraph:"index=day"`
+	Dob				time.Time	`json:"dob" dgraph:"index=day"`
 }
 
 ...
-	users := []User{
+	users := []*User{
 		User{
 			Name: "Alexander",
 			Email: "alexander@gmail.com",
@@ -375,55 +375,34 @@ type User struct {
 		},
 	}
 
-	if err := dgman.Upsert(context.Background(), c.NewTxn(), &users, dgman.MutateOptions{CommitNow: true}); err != nil {
+	tx := dgman.NewTxn(c)
+	if err := tx.Upsert(&users, "email", true); err != nil {
 		panic(err)
 	}
 ```
 
 #### Create Or Get
 
-`CreateOrGet` will create any nodes that does not violate any keys, otherwise just get the existing node.
-
-#### Update On Conflict
-
-`UpdateOnConflict` is the base for `Upsert` and `CreateOrGet`, which defines a callback when there is a unique key conflict.
+`CreateOrGet` creates a node if a node with a value of a specified predicate does not exist, otherwise return the node.
 
 ```go
-users := []*User{
-	&User{
-		Name:     "ajiba",
-		Username: "wildanjing",
-		Email:    "wildan2711@gmail.com",
-	},
-	&User{
-		Name:     "PooDiePie",
-		Username: "wildansyah",
-		Email:    "wildanodol2711@gmail.com",
-	},
-	&User{
-		Name:     "lalap",
-		Username: "lalap",
-		Email:    "lalap@gmail.com",
-	},
-}
-
-tx = c.NewTxn()
-
-cb := func(uniqueErr UniqueError, found, excluded interface{}) interface{} {
-	switch uniqueErr.Field {
-	case "email":
-		f := found.(*TestUnique)
-		e := excluded.(*TestUnique)
-		// just modify the username when email found
-		f.Username = e.Username
-		return found
+	users := []*User{
+		User{
+			Name: "Alexander",
+			Email: "alexander@gmail.com",
+			Username: "alex123",
+		},
+		User{
+			Name: "Fergusso",
+			Email: "fergusso@gmail.com",
+			Username: "fergusso123",
+		},
 	}
-	// return nil to not update the node
-	return nil
-}
-if err := UpdateOnConflict(context.Background(), tx, &testDuplicate, cb); err != nil {
 
-}
+	tx := dgman.NewTxn(c)
+	if err := tx.CreateOrGet(&users, "email", true); err != nil {
+		panic(err)
+	}
 ```
 
 ### Query Helpers
@@ -432,8 +411,10 @@ if err := UpdateOnConflict(context.Background(), tx, &testDuplicate, cb); err !=
 
 ```go
 // Get by UID
+tx := dgman.NewTxn(c)
+
 user := User{}
-if err := dgman.Get(ctx, tx, &user).UID("0x9cd5").Node(); err != nil {
+if err := tx.Get(&user).UID("0x9cd5").Node(); err != nil {
 	if err == dgman.ErrNodeNotFound {
 		// node not found
 	}
@@ -446,9 +427,11 @@ fmt.Println(user)
 #### Get by Filter
 
 ```go
+tx := dgman.NewReadOnlyTxn(c)
+
 user := User{}
 // get node with node type `user` that matches filter
-err := dgman.Get(ctx, tx, &user).
+err := tx.Get(&user).
 	Vars("getUser($name: string)", map[string]string{"$name": "wildan"}). // function defintion and Graphql variables
 	Filter("allofterms(name, $name)"). // dgraph filter
 	All(1). // returns all predicates, expand on 1 level of edge predicates
@@ -466,6 +449,8 @@ fmt.Println(user)
 #### Get by query
 
 ```go
+tx := dgman.NewReadOnlyTxn(c)
+
 users := []User{}
 query := `@filter(allofterms(name, $name)) {
 	uid
@@ -475,7 +460,7 @@ query := `@filter(allofterms(name, $name)) {
 	}
 }`
 // get nodes with node type `user` that matches filter
-err := dgman.Get(ctx, tx, &users).
+err := tx.Get(&users).
 	Vars("getUsers($name: string)", map[string]string{"$name": "wildan"}). // function defintion and Graphql variables
 	Query(query). // dgraph query portion (without root function)
 	OrderAsc("name"). // ordering ascending by predicate
@@ -494,9 +479,11 @@ fmt.Println(users)
 You can also combine `Filter` with `Query`.
 
 ```go
+tx := dgman.NewReadOnlyTxn(c)
+
 users := []User{}
 // get nodes with node type `user` that matches filter
-err := dgman.Get(ctx, tx, &users).
+err := tx.Get(&users).
 	Vars("getUsers($name: string)", map[string]string{"$name": "wildan"}). // function defintion and Graphql variables
 	Filter("allofterms(name, $name)").
 	Query(`{
@@ -524,6 +511,8 @@ fmt.Println(users)
 Delete helpers can be used to simplify deleting nodes that matches a query, using the same query format as [Query Helpers](#query-helpers).
 
 ```go
+tx := dgman.NewTxn(c)
+
 query := `@filter() {
 	uid
 	expand(_all_) {
@@ -532,7 +521,7 @@ query := `@filter() {
 }`
 // delete all nodes with node type `user` that matches query
 // all edge nodes that are specified in the query will also be deleted
-deletedUids, err := dgman.Delete(ctx, tx, &User{}, dgman.MutateOptions{CommitNow: true}).
+deletedUids, err := tx.Delete(&User{}, true).
 	Vars("getUsers($name: string)", map[string]string{"$name": "wildan"}). // function defintion and Graphql variables
 	Query(query). // dgraph query portion (without root function)
 	OrderAsc("name"). // ordering ascending by predicate
@@ -551,16 +540,19 @@ fmt.Println(deletedUids)
 For deleting edges, you only need to specify node UID, edge predicate, and edge UIDs
 
 ```go
-err := dgman.Delete(ctx, tx, &User{}, dgman.MutateOptions{CommitNow: true}).
+tx := dgman.NewTxn(c)
+err := tx.Delete(&User{}, true).
 	Edge("0x12", "schools", "0x13", "0x14")
 ```
 
 If no edge UIDs are specified, all edges of the specified predicate will be deleted.
 
 ```go
-err := dgman.Delete(ctx, tx, &User{}, dgman.MutateOptions{CommitNow: true}).
+tx := dgman.NewTxn(c)
+err := tx.Delete(&User{}, true).
 	Edge("0x12", "schools")
 ```
 
 ## TODO
 - Filter generator
+- Improve query parameter passing
