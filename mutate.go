@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"reflect"
 	"strconv"
 	"strings"
@@ -124,94 +125,21 @@ func (m *mutateType) uidIndex() (int, error) {
 	return index, nil
 }
 
-// saveUID saves the UID to the passed model, field with uid json tag
-func (m *mutateType) saveUID(uids map[string]string, refVal ...*reflect.Value) error {
-	val := m.value
-	if len(refVal) != 0 {
-		val = refVal[0]
+func mutate(ctx context.Context, tx *dgo.Txn, data interface{}, commitNow ...bool) (*api.Response, error) {
+	optCommitNow := false
+	if len(commitNow) > 0 {
+		optCommitNow = commitNow[0]
 	}
 
-	uidIndex, err := m.uidIndex()
-	if err != nil {
-		return err
-	}
-
-	// reflected value must be a slice
-	n := val.Len()
-	for i := 0; i < n; i++ {
-		el := val.Index(i)
-		if el.Kind() == reflect.Ptr {
-			el = el.Elem()
-		}
-
-		uidAlias := blankUID(i)
-		uid, exists := uids[uidAlias]
-		if exists {
-			el.Field(uidIndex).SetString(uid)
-		} else {
-			val := el.Field(uidIndex).String()
-			if val[0] == '_' {
-				// don't return node alias if uid not assigned
-				el.Field(uidIndex).SetString("")
-			}
-		}
-	}
-
-	return nil
-}
-
-// MutateOptions specifies options for mutating
-type MutateOptions struct {
-	// DisableInject disables injecting node types in "dgraph.type" predicate
-	DisableInject bool
-	CommitNow     bool
-}
-
-func mutate(ctx context.Context, tx *dgo.Txn, data interface{}, opt *MutateOptions) (*api.Response, error) {
-	out, err := marshalAndInjectType(data, opt.DisableInject)
+	out, err := marshalAndInjectType(data)
 	if err != nil {
 		return nil, err
 	}
 
 	return tx.Mutate(ctx, &api.Mutation{
 		SetJson:   out,
-		CommitNow: opt.CommitNow,
+		CommitNow: optCommitNow,
 	})
-}
-
-func mutateWithConstraints(ctx context.Context, tx *dgo.Txn, data interface{}, update bool, options ...*MutateOptions) error {
-	opt := &MutateOptions{}
-	if len(options) > 0 {
-		opt = options[0]
-	}
-
-	mType, err := newMutateType(data)
-	if err != nil {
-		return err
-	}
-
-	req, err := mType.generateRequest(data, update, opt)
-	if err != nil {
-		return err
-	}
-
-	assigned, err := tx.Do(ctx, req)
-	if err != nil {
-		return err
-	}
-
-	if assigned.Json != nil {
-		if err = mType.checkUnique(assigned.Json); err != nil {
-			return err
-		}
-	}
-
-	// if not update save uid
-	if !update {
-		return mType.saveUID(assigned.Uids)
-	}
-
-	return nil
 }
 
 // blankUID generates alias for blank uid from slice index
@@ -241,119 +169,75 @@ func (m *mutateType) injectAlias() error {
 	return nil
 }
 
-func (m *mutateType) checkUnique(queryResponse []byte) error {
-	var mapNodes mapNodes
-	if err := json.Unmarshal(queryResponse, &mapNodes); err != nil {
-		return errors.Wrapf(err, `unmarshal queryResponse "%s"`, queryResponse)
+type mutation struct {
+	txn         *dgo.Txn
+	ctx         context.Context
+	update      bool
+	predicate   string
+	returnQuery bool
+	mType       *mutateType
+	commitNow   bool
+}
+
+func newMutation(tx *TxnContext, data interface{}, commitNow ...bool) (*mutation, error) {
+	optCommitNow := false
+	if len(commitNow) > 0 {
+		optCommitNow = commitNow[0]
 	}
 
-	for queryIndex, nodes := range mapNodes {
-		if len(nodes) == 0 {
-			continue
-		}
+	mType, err := newMutateType(data)
+	if err != nil {
+		return nil, err
+	}
 
-		// queryIndex should have the format q_<sliceIndex>_<schemaIndex>
-		// e.g: q_0_2
-		queryIndexParts := strings.Split(queryIndex, "_")
-		if len(queryIndexParts) != 3 {
-			// hopefully no unrecognized queries found
-			return fmt.Errorf("unrecognized query")
-		}
+	return &mutation{txn: tx.txn, ctx: tx.ctx, mType: mType, commitNow: optCommitNow}, nil
+}
 
-		sliceIndex, err := strconv.Atoi(queryIndexParts[1])
-		if err != nil {
-			return errors.Wrapf(err, "sliceIndex atoi %s", queryIndex)
-		}
-		schemaIndex, err := strconv.Atoi(queryIndexParts[2])
-		if err != nil {
-			return errors.Wrapf(err, "schemaIndex atoi %s", queryIndex)
-		}
+func (m *mutation) do() error {
+	req, err := m.generateRequest()
+	if err != nil {
+		return err
+	}
 
-		schema := m.schema[schemaIndex]
-		val := m.value.Index(sliceIndex).Elem()
-		queryUID := nodes[0].UID
-		uidIndex, _ := m.uidIndex()
+	assigned, err := m.txn.Do(m.ctx, req)
+	if err != nil {
+		log.Println(req)
+		return err
+	}
 
-		// only return unique error if not updating the user specified node
-		// i.e: UID field is set
-		if val.Field(uidIndex).String() != queryUID {
-			return &UniqueError{
-				NodeType: m.nodeType,
-				Field:    schema.Predicate,
-				Value:    val.Field(schemaIndex).Interface(),
-				UID:      nodes[0].UID,
-			}
+	if assigned.Json != nil {
+		if err = m.processQuery(assigned); err != nil {
+			return err
 		}
 	}
+
+	// if not update save uid
+	if !m.update {
+		return m.saveUID(assigned.Uids)
+	}
+
 	return nil
 }
 
-func (m *mutateType) generateQueryConditions(data interface{}, index int, update bool) (query string, condition string, err error) {
-	uniqueFields, err := m.getAllUniqueFields(data, update)
-	if err != nil {
-		return "", "", err
-	}
-
-	uidIndex, err := m.uidIndex()
-	if err != nil {
-		return "", "", err
-	}
-
-	queries := make([]string, 0, len(uniqueFields))
-	conditions := make([]string, 0, len(uniqueFields))
-	for schemaIndex, value := range uniqueFields {
-		if schemaIndex == uidIndex {
-			continue
-		}
-
-		jsonValue, err := json.Marshal(value)
-		if err != nil {
-			return "", "", errors.Wrapf(err, "marshal %v", value)
-		}
-
-		schema := m.schema[schemaIndex]
-		// index refers to the slice index of data
-		queryIndex := fmt.Sprintf("q_%d_%d", index, schemaIndex)
-		uidListIndex := fmt.Sprintf("u_%d_%d", index, schemaIndex)
-		filter := fmt.Sprintf("eq(%s, %s)", schema.Predicate, jsonValue)
-		if update {
-			// if update make sure not unique checking the current node
-			filter = fmt.Sprintf("NOT uid(%s) AND %s", uniqueFields[uidIndex], filter)
-		}
-		queries = append(queries, fmt.Sprintf("\t%s(func: type(%s)) @filter(%s) { %s as uid }", queryIndex, m.nodeType, filter, uidListIndex))
-		conditions = append(conditions, fmt.Sprintf("eq(len(%s), 0)", uidListIndex))
-	}
-
-	conditionString := strings.Join(conditions, " AND ")
-	if conditionString != "" {
-		conditionString = fmt.Sprintf("@if(%s)", conditionString)
-	}
-
-	return strings.Join(queries, "\n"), conditionString, nil
-}
-
-// TODO: return UniqueError when a node already exist based on unique fields
-func (m *mutateType) generateRequest(data interface{}, update bool, opt *MutateOptions) (req *api.Request, err error) {
+func (m *mutation) generateRequest() (req *api.Request, err error) {
 	// reflected value must be a slice
-	len := m.value.Len()
+	len := m.mType.value.Len()
 	queries := make([]string, 0, len)
 	mutations := make([]*api.Mutation, len)
 	for i := 0; i < len; i++ {
-		v := m.value.Index(i)
+		v := m.mType.value.Index(i)
 
-		query, condition, err := m.generateQueryConditions(v.Interface(), i, update)
+		query, condition, err := m.generateQueryConditions(v.Interface(), i)
 		if err != nil {
 			return nil, err
 		}
 
-		setJSON, err := marshalAndInjectType(v.Interface(), opt.DisableInject)
+		setJSON, err := marshalAndInjectType(v.Interface())
 		if err != nil {
 			return nil, err
 		}
 
-		if query != "" {
-			queries = append(queries, query)
-		}
+		queries = append(queries, query...)
 		mutations[i] = &api.Mutation{
 			Cond:    condition,
 			SetJson: setJSON,
@@ -368,90 +252,227 @@ func (m *mutateType) generateRequest(data interface{}, update bool, opt *MutateO
 	return &api.Request{
 		Query:     queryString,
 		Mutations: mutations,
-		CommitNow: opt.CommitNow,
+		CommitNow: m.commitNow,
 	}, nil
 }
 
-// getAllUniqueFields gets all values of the fields that has to be unique
-// and also checks for not null constraints
-func (m *mutateType) getAllUniqueFields(data interface{}, update bool) (map[int]interface{}, error) {
+func (m *mutation) generateQueryConditions(data interface{}, index int) (queries []string, condition string, err error) {
 	reflectVal := reflect.ValueOf(data)
 	if reflectVal.Kind() == reflect.Ptr {
 		reflectVal = reflectVal.Elem()
 	}
 
-	// map all fields that must be unique
-	uniqueValueMap := make(map[int]interface{})
-	if update {
-		// if update, save the uid also
-		uidIndex, err := m.uidIndex()
+	uidIndex, err := m.mType.uidIndex()
+	if err != nil {
+		return nil, "", err
+	}
+
+	numField := m.mType.vType.NumField()
+	var conditions []string
+	for schemaIndex := 0; schemaIndex < numField; schemaIndex++ {
+		field := reflectVal.Field(schemaIndex)
+		schema := m.mType.schema[schemaIndex]
+		// index refers to the slice index of data
+		queryIndex := fmt.Sprintf("q_%d_%d", index, schemaIndex)
+		uidListIndex := fmt.Sprintf("u_%d_%d", index, schemaIndex)
+
+		if schema.Unique {
+			value := field.Interface()
+			if isNull(value) {
+				// only check unique if not null/zero value
+				continue
+			}
+
+			jsonValue, err := json.Marshal(value)
+			if err != nil {
+				return nil, "", errors.Wrapf(err, "marshal %v", value)
+			}
+
+			filter := fmt.Sprintf("eq(%s, %s)", schema.Predicate, jsonValue)
+			if m.update {
+				uid := reflectVal.Field(uidIndex).String()
+				// if update make sure not unique checking the current node
+				filter = fmt.Sprintf("NOT uid(%s) AND %s", uid, filter)
+			}
+
+			queryFields := fmt.Sprintf("%s as uid", uidListIndex)
+			if m.returnQuery && (m.predicate == "" || m.predicate == schema.Predicate) {
+				queryFields = fmt.Sprintf("%s\nexpand(_all_)", queryFields)
+			}
+			queries = append(queries, fmt.Sprintf("\t%s(func: type(%s)) @filter(%s) {\n%s\n}", queryIndex, m.mType.nodeType, filter, queryFields))
+			// on upsert field, allow mutation to continue, skip condition
+			if m.predicate != schema.Predicate {
+				conditions = append(conditions, fmt.Sprintf("eq(len(%s), 0)", uidListIndex))
+			}
+		}
+
+		if m.predicate != "" && m.predicate == schema.Predicate {
+			uidFunc := fmt.Sprintf("uid(%s)", uidListIndex)
+			reflectVal.Field(uidIndex).SetString(uidFunc)
+		}
+	}
+
+	conditionString := strings.Join(conditions, " AND ")
+	if conditionString != "" {
+		conditionString = fmt.Sprintf("@if(%s)", conditionString)
+	}
+
+	return queries, conditionString, nil
+}
+
+func parseQueryIndex(queryIndex string) (sliceIndex int, schemaIndex int, err error) {
+	// queryIndex should have the format q_<sliceIndex>_<schemaIndex>
+	// e.g: q_0_2
+	queryIndexParts := strings.Split(queryIndex, "_")
+	if len(queryIndexParts) != 3 {
+		// hopefully no unrecognized queries found
+		return 0, 0, fmt.Errorf("unrecognized query")
+	}
+
+	sliceIndex, err = strconv.Atoi(queryIndexParts[1])
+	if err != nil {
+		return 0, 0, errors.Wrapf(err, "sliceIndex atoi %s", queryIndex)
+	}
+	schemaIndex, err = strconv.Atoi(queryIndexParts[2])
+	if err != nil {
+		return 0, 0, errors.Wrapf(err, "schemaIndex atoi %s", queryIndex)
+	}
+
+	return sliceIndex, schemaIndex, nil
+}
+
+func (m *mutation) processQuery(assigned *api.Response) error {
+	var mapNodes map[string][]json.RawMessage
+	if err := json.Unmarshal(assigned.Json, &mapNodes); err != nil {
+		return errors.Wrapf(err, `unmarshal queryResponse "%s"`, assigned.Json)
+	}
+
+	for queryIndex, msg := range mapNodes {
+		if len(msg) == 0 {
+			continue
+		}
+
+		sliceIndex, schemaIndex, err := parseQueryIndex(queryIndex)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		uniqueValueMap[uidIndex] = reflectVal.Field(uidIndex).Interface()
-	}
+		schema := m.mType.schema[schemaIndex]
+		val := m.mType.value.Index(sliceIndex).Elem()
+		uidIndex, _ := m.mType.uidIndex()
 
-	uniqueType := reflect.TypeOf((*NodeUnique)(nil)).Elem()
-	if m.vType.Implements(uniqueType) {
-		nodeUnique := reflectVal.Interface().(NodeUnique)
-
-		for _, pred := range nodeUnique.UniqueKeys() {
-			if predIndex, ok := m.predIndex[pred]; ok {
-				val := reflectVal.Field(predIndex).Interface()
-				if !isNull(val) {
-					uniqueValueMap[predIndex] = val
+		if m.returnQuery {
+			if m.predicate == "" || m.predicate == schema.Predicate {
+				if err := json.Unmarshal(msg[0], val.Addr().Interface()); err != nil {
+					return errors.Wrapf(err, "unmarshal query %s", queryIndex)
 				}
 			}
+			continue
 		}
-	} else {
-		for i := 0; i < m.vType.NumField(); i++ {
-			field := reflectVal.Field(i)
-			s := m.schema[i]
 
-			if s.Unique {
-				val := field.Interface()
-				if !isNull(val) {
-					// only check unique if not null/zero value
-					uniqueValueMap[i] = val
-				}
+		var node node
+		if err := json.Unmarshal(msg[0], &node); err != nil {
+			return errors.Wrapf(err, "unmarshal node %s", queryIndex)
+		}
+
+		queryUID := node.UID
+
+		// set uid if upsert
+		if m.predicate != "" && m.predicate == schema.Predicate {
+			uidFunc := fmt.Sprintf("uid(u_%d_%d)", sliceIndex, schemaIndex)
+			uidField := val.Field(uidIndex)
+			if uidFunc == uidField.String() {
+				// set the uid, if this is the matching upsert uid
+				uidField.SetString(queryUID)
+			}
+			continue
+		}
+
+		// only return unique error if not updating the user specified node
+		// i.e: UID field is set
+		if val.Field(uidIndex).String() != queryUID {
+			return &UniqueError{
+				NodeType: m.mType.nodeType,
+				Field:    schema.Predicate,
+				Value:    val.Field(schemaIndex).Interface(),
+				UID:      queryUID,
 			}
 		}
 	}
-	return uniqueValueMap, nil
+	return nil
+}
+
+// saveUID saves the UID to the passed model, field with uid json tag
+func (m *mutation) saveUID(uids map[string]string) error {
+	val := m.mType.value
+
+	uidIndex, err := m.mType.uidIndex()
+	if err != nil {
+		return err
+	}
+
+	// reflected value must be a slice
+	n := val.Len()
+	for i := 0; i < n; i++ {
+		el := val.Index(i)
+		if el.Kind() == reflect.Ptr {
+			el = el.Elem()
+		}
+
+		uidAlias := blankUID(i)
+		uid, exists := uids[uidAlias]
+		if exists {
+			el.Field(uidIndex).SetString(uid)
+		} else {
+			val := el.Field(uidIndex).String()
+			if val[0] == '_' {
+				// don't return node alias if uid not assigned
+				el.Field(uidIndex).SetString("")
+			}
+		}
+
+		if m.predicate != "" {
+			// if upsert created a new node
+			schemaIndex := m.mType.predIndex[m.predicate]
+			uidFunc := fmt.Sprintf("uid(u_%d_%d)", i, schemaIndex)
+			if uid, exists := uids[uidFunc]; exists {
+				el.Field(uidIndex).SetString(uid)
+			}
+		}
+	}
+
+	return nil
 }
 
 func isNull(x interface{}) bool {
 	return x == nil || reflect.DeepEqual(x, reflect.Zero(reflect.TypeOf(x)).Interface())
 }
 
-func marshalAndInjectType(data interface{}, disableInject bool) ([]byte, error) {
+func marshalAndInjectType(data interface{}) ([]byte, error) {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal")
 	}
 
-	if !disableInject {
-		nodeType := GetNodeType(data)
+	nodeType := GetNodeType(data)
 
-		jsonString := jsonData
-		switch jsonString[0] {
-		case '{': // if JSON object, starts with "{"
-			result := `{"dgraph.type":"` + nodeType + `",` + string(jsonData[1:])
-			return []byte(result), nil
-		case '[': // if JSON array, starts with "[", inject node type one by one
-			var result bytes.Buffer
-			for _, char := range jsonString {
-				if char == '{' {
-					result.WriteString(`{"dgraph.type":"`)
-					result.WriteString(nodeType)
-					result.WriteString(`",`)
-					continue
-				}
-				result.WriteByte(char)
+	jsonString := jsonData
+	switch jsonString[0] {
+	case '{': // if JSON object, starts with "{"
+		result := `{"dgraph.type":"` + nodeType + `",` + string(jsonData[1:])
+		return []byte(result), nil
+	case '[': // if JSON array, starts with "[", inject node type one by one
+		var result bytes.Buffer
+		for _, char := range jsonString {
+			if char == '{' {
+				result.WriteString(`{"dgraph.type":"`)
+				result.WriteString(nodeType)
+				result.WriteString(`",`)
+				continue
 			}
-			return result.Bytes(), nil
+			result.WriteByte(char)
 		}
+		return result.Bytes(), nil
 	}
 
 	return jsonData, nil

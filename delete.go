@@ -31,7 +31,7 @@ type Deleter struct {
 	tx        *dgo.Txn
 	model     interface{}
 	q         *Query
-	mutateOpt *MutateOptions
+	commitNow bool
 }
 
 func (d *Deleter) Query(query string) *Deleter {
@@ -124,7 +124,7 @@ func (d *Deleter) Edge(uid, edgePredicate string, edgeUIDs ...string) error {
 
 	buffer.WriteByte('}')
 
-	_, err := d.tx.Mutate(d.ctx, &api.Mutation{DeleteJson: buffer.Bytes(), CommitNow: d.mutateOpt.CommitNow})
+	_, err := d.tx.Mutate(d.ctx, &api.Mutation{DeleteJson: buffer.Bytes(), CommitNow: d.commitNow})
 	return err
 }
 
@@ -172,7 +172,7 @@ func (d *Deleter) deleteUids(uids []string) error {
 	uidsJSON := generateUidsJSON(uids)
 	_, err := d.tx.Mutate(d.ctx, &api.Mutation{
 		DeleteJson: uidsJSON,
-		CommitNow:  d.mutateOpt.CommitNow,
+		CommitNow:  d.commitNow,
 	})
 
 	return err
