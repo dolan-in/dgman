@@ -54,6 +54,12 @@ type Query struct {
 	query       string
 }
 
+// Model sets the node model for determining types
+func (q *Query) Model(model interface{}) *Query {
+	q.model = model
+	return q
+}
+
 // Query defines the query portion other than the root function
 func (q *Query) Query(query string) *Query {
 	q.query = query

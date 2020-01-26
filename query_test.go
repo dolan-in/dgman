@@ -55,7 +55,7 @@ func TestGetByUID(t *testing.T) {
 
 	tx := NewTxn(c)
 
-	err = tx.Mutate(source, &MutateOptions{CommitNow: true})
+	err = tx.Mutate(source, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -88,7 +88,7 @@ func TestGetByFilter(t *testing.T) {
 
 	tx := NewTxn(c)
 
-	err := tx.Mutate(source, &MutateOptions{CommitNow: true})
+	err := tx.Mutate(source, true)
 	if err != nil {
 		t.Error(err)
 	}

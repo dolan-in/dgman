@@ -79,7 +79,7 @@ func TestDeleteFilter(t *testing.T) {
 		t.Error(err)
 	}
 
-	_, err = NewTxn(c).Delete(&User{}, &MutateOptions{CommitNow: true}).
+	_, err = NewTxn(c).Delete(&User{}, true).
 		Filter(`allofterms(name, "wildan")`).
 		Nodes()
 	if err != nil {
@@ -106,7 +106,7 @@ func TestDeleteQuery(t *testing.T) {
 	}
 	tx := NewTxn(c)
 
-	err := tx.Create(&school, &MutateOptions{CommitNow: true})
+	err := tx.Create(&school, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -141,7 +141,7 @@ func TestDeleteQuery(t *testing.T) {
 	}
 	log.Println(users[0])
 
-	nodes, err := NewTxn(c).Delete(&User{}, &MutateOptions{CommitNow: true}).
+	nodes, err := NewTxn(c).Delete(&User{}, true).
 		Query(`@filter(allofterms(name, "wildan")) {
 			uid
 			schools {
@@ -175,7 +175,7 @@ func TestDeleteQueryNode(t *testing.T) {
 	}
 	tx := NewTxn(c)
 
-	err := tx.Create(&school, &MutateOptions{CommitNow: true})
+	err := tx.Create(&school, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -210,7 +210,7 @@ func TestDeleteQueryNode(t *testing.T) {
 	}
 	log.Println(users[0])
 
-	nodes, err := NewTxn(c).Delete(&User{}, &MutateOptions{CommitNow: true}).
+	nodes, err := NewTxn(c).Delete(&User{}, true).
 		Query(`@filter(eq(email, "wildan2711@gmail.com")) {
 			uid
 			schools {
@@ -256,7 +256,7 @@ func TestDeleteEdge(t *testing.T) {
 
 	tx := NewTxn(c)
 
-	err := tx.Create(&schools, &MutateOptions{CommitNow: true})
+	err := tx.Create(&schools, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -268,7 +268,7 @@ func TestDeleteEdge(t *testing.T) {
 		Schools:  schools,
 	}
 
-	err = NewTxn(c).Create(&user, &MutateOptions{CommitNow: true})
+	err = NewTxn(c).Create(&user, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -283,7 +283,7 @@ func TestDeleteEdge(t *testing.T) {
 
 	assert.Len(t, user.Schools, 4)
 
-	err = NewTxn(c).Delete(&user, &MutateOptions{CommitNow: true}).
+	err = NewTxn(c).Delete(&user, true).
 		Edge(user.UID, "schools", user.Schools[0].UID)
 	if err != nil {
 		t.Error(err)
@@ -299,7 +299,7 @@ func TestDeleteEdge(t *testing.T) {
 
 	assert.Len(t, user.Schools, 3)
 
-	err = NewTxn(c).Delete(&user, &MutateOptions{CommitNow: true}).
+	err = NewTxn(c).Delete(&user, true).
 		Edge(user.UID, "schools")
 	if err != nil {
 		t.Error(err)

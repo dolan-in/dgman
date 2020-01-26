@@ -76,7 +76,7 @@ func main() {
 		Username: "alex123",
 	}
 
-	if err := dgman.NewTxn(c).Mutate(&user, &dgman.MutateOptions{CommitNow: true}); err != nil {
+	if err := dgman.NewTxn(c).Mutate(&user, true); err != nil {
 		panic(err)
 	}
 	fmt.Println(user.UID)
@@ -87,7 +87,7 @@ func main() {
 		Username: "alexa",
 	}
 
-	if err := dgman.NewTxn(c).Create(&user, &dgman.MutateOptions{CommitNow: true}); err != nil {
+	if err := dgman.NewTxn(c).Create(&user, true); err != nil {
 		if uniqueErr, ok := err.(*dgman.UniqueError); ok {
 			// check the duplicate field
 			fmt.Println(uniqueErr.Field, uniqueErr.Value)

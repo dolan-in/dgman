@@ -2,6 +2,7 @@ package dgman
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/dgraph-io/dgo/v2"
 )
@@ -39,10 +40,10 @@ func (t *TxnContext) Context() context.Context {
 
 // Mutate is a shortcut to create mutations from data to be marshalled into JSON,
 // it will inject the node type from the Struct name
-func (t *TxnContext) Mutate(data interface{}, options ...*MutateOptions) error {
-	opt := &MutateOptions{}
-	if len(options) > 0 {
-		opt = options[0]
+func (t *TxnContext) Mutate(data interface{}, commitNow ...bool) error {
+	optCommitNow := false
+	if len(commitNow) > 0 {
+		optCommitNow = commitNow[0]
 	}
 
 	mType, err := newMutateType(data)
@@ -50,35 +51,72 @@ func (t *TxnContext) Mutate(data interface{}, options ...*MutateOptions) error {
 		return err
 	}
 
-	assigned, err := mutate(t.ctx, t.txn, data, opt)
+	assigned, err := mutate(t.ctx, t.txn, data, optCommitNow)
 	if err != nil {
 		return err
 	}
 
-	return mType.saveUID(assigned.Uids)
+	return (&mutation{mType: mType}).saveUID(assigned.Uids)
 }
 
 // Create create node(s) with field unique checking, similar to Mutate,
 // will inject node type from the Struct name
-func (t *TxnContext) Create(data interface{}, options ...*MutateOptions) error {
-	return mutateWithConstraints(t.ctx, t.txn, data, false, options...)
+func (t *TxnContext) Create(data interface{}, commitNow ...bool) error {
+	mutation, err := newMutation(t, data, commitNow...)
+	if err != nil {
+		return err
+	}
+	return mutation.do()
 }
 
 // Update updates a node by their UID with field unique checking, similar to Mutate,
 // will inject node type from the Struct name
-func (t *TxnContext) Update(data interface{}, options ...*MutateOptions) error {
-	return mutateWithConstraints(t.ctx, t.txn, data, true, options...)
+func (t *TxnContext) Update(data interface{}, commitNow ...bool) error {
+	mutation, err := newMutation(t, data, commitNow...)
+	if err != nil {
+		return err
+	}
+	mutation.update = true
+	return mutation.do()
+}
+
+// Upsert will update a node when a value from the passed predicate (with the node type) exists, otherwise insert the node.
+// On all conditions, unique checking holds on the node type on other unique fields.
+func (t *TxnContext) Upsert(data interface{}, predicate string, commitNow ...bool) error {
+	mutation, err := newMutation(t, data, commitNow...)
+	if err != nil {
+		return err
+	}
+	if _, exists := mutation.mType.predIndex[predicate]; !exists {
+		return fmt.Errorf("predicate \"%s\" does not exist in passed data", predicate)
+	}
+	mutation.predicate = predicate
+	return mutation.do()
+}
+
+// CreateOrGet will create a node or if a node with a value from the passed predicate exists, return the node
+func (t *TxnContext) CreateOrGet(data interface{}, predicate string, commitNow ...bool) error {
+	mutation, err := newMutation(t, data, commitNow...)
+	if err != nil {
+		return err
+	}
+	if _, exists := mutation.mType.predIndex[predicate]; !exists {
+		return fmt.Errorf("predicate \"%s\" does not exist in passed data", predicate)
+	}
+	mutation.returnQuery = true
+	mutation.predicate = predicate
+	return mutation.do()
 }
 
 // Delete prepares a delete mutation using a query
-func (t *TxnContext) Delete(model interface{}, opt ...*MutateOptions) *Deleter {
-	mutateOpt := &MutateOptions{}
-	if len(opt) > 0 {
-		mutateOpt = opt[0]
+func (t *TxnContext) Delete(model interface{}, commitNow ...bool) *Deleter {
+	optCommitNow := false
+	if len(commitNow) > 0 {
+		optCommitNow = commitNow[0]
 	}
 
 	q := &Query{ctx: t.ctx, tx: t.txn, model: model}
-	return &Deleter{q: q, ctx: t.ctx, tx: t.txn, mutateOpt: mutateOpt}
+	return &Deleter{q: q, ctx: t.ctx, tx: t.txn, commitNow: optCommitNow}
 }
 
 // Get prepares a query for a model
