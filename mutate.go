@@ -21,7 +21,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"reflect"
 	"strconv"
 	"strings"
@@ -54,8 +53,6 @@ type mutateType struct {
 type node struct {
 	UID string `json:"uid"`
 }
-
-type mapNodes map[string][]node
 
 func reflectValue(model interface{}) (*reflect.Value, error) {
 	current := reflect.ValueOf(model)
@@ -201,7 +198,6 @@ func (m *mutation) do() error {
 
 	assigned, err := m.txn.Do(m.ctx, req)
 	if err != nil {
-		log.Println(req)
 		return err
 	}
 
@@ -299,7 +295,7 @@ func (m *mutation) generateQueryConditions(data interface{}, index int) (queries
 			if m.returnQuery && (m.predicate == "" || m.predicate == schema.Predicate) {
 				queryFields = fmt.Sprintf("%s\nexpand(_all_)", queryFields)
 			}
-			queries = append(queries, fmt.Sprintf("\t%s(func: type(%s)) @filter(%s) {\n%s\n}", queryIndex, m.mType.nodeType, filter, queryFields))
+			queries = append(queries, fmt.Sprintf("\t%s(func: type(%s), first: 1) @filter(%s) {\n%s\n}", queryIndex, m.mType.nodeType, filter, queryFields))
 			// on upsert field, allow mutation to continue, skip condition
 			if m.predicate != schema.Predicate {
 				conditions = append(conditions, fmt.Sprintf("eq(len(%s), 0)", uidListIndex))
