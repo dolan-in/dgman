@@ -3,16 +3,20 @@
 [![Coverage Status](https://coveralls.io/repos/github/dolan-in/dgman/badge.svg?branch=master)](https://coveralls.io/github/dolan-in/dgman?branch=master)
 [![GoDoc](https://godoc.org/github.com/dolan-in/dgman?status.svg)](https://godoc.org/github.com/dolan-in/dgman)
 
-***Dgman*** is a schema manager for [Dgraph](https://dgraph.io/) using the [Go Dgraph client (dgo)](https://github.com/dgraph-io/dgo), which manages Dgraph schema and indexes from Go tags in struct definitions
+***Dgman*** is a schema manager for [Dgraph](https://dgraph.io/) using the [Go Dgraph client (dgo)](https://github.com/dgraph-io/dgo), which manages Dgraph types, schema, and indexes from Go tags in struct definitions, allowing ORM-like convenience for developing Dgraph clients in Go.
 
 ## Features
-- Create schemas and indexes from struct tags.
+- Create [types](https://docs.dgraph.io/query-language/#type-system) (Dgraph v1.1+), schemas, and indexes from struct tags.
 - Detect conflicts from existing schema and defined schema.
 - Mutate Helpers (Create, Update, Upsert).
-- Autoinject [node type](https://docs.dgraph.io/query-language/#type-system) from struct.
+- Autoinject node type from struct.
 - Field unique checking (e.g: emails, username).
 - Query helpers.
 - Delete helper.
+
+## Roadmap
+- Query builders
+- Query fragments
 
 ## Table of Contents
 
@@ -24,7 +28,6 @@
   - [Mutate Helpers](#mutate-helpers)
     - [Mutate](#mutate)
     - [Node Types](#node-types)
-	  - [Prefixed Node Types](#prefixed-node-types)
     - [Create (Mutate with Unique Checking)](#create-mutate-with-unique-checking)
     - [Upsert](#upsert)
     - [Create Or Get](#create-or-get)
@@ -130,6 +133,7 @@ When schema conflicts is detected with the existing schema already installed in 
 
 To overwrite/update index definitions, you can use the `MutateSchema` function, which will update the schema indexes.
 
+```go
 	// update the schema indexes
 	schema, err := dgman.MutateSchema(c, &User{})
 	if err != nil {
@@ -137,6 +141,7 @@ To overwrite/update index definitions, you can use the `MutateSchema` function, 
 	}
 	// Check the generated schema
 	fmt.Println(schema)
+```
 
 ### Mutate Helpers
 
@@ -151,7 +156,11 @@ user := User{
 	Username: "alex123",
 }
 
-if err := dgman.Mutate(context.Background(), c.NewTxn(), &user, dgman.MutateOptions{CommitNow: true}); err != nil {
+// Create a transaction with context.Background() as the context
+// can be shorthened to dgman.NewTxn(c)
+tx := dgman.NewTxnContext(context.Background(), c)
+// pass true as the second parameter to commit now
+if err := tx.Mutate(&user, true); err != nil {
 	panic(err)
 }
 
@@ -159,10 +168,10 @@ if err := dgman.Mutate(context.Background(), c.NewTxn(), &user, dgman.MutateOpti
 fmt.Println(user.UID)
 ```
 
-The above will insert a node with the following JSON string, with the field `"dgraph.type":"user"` added in:
+The above will insert a node with the following JSON string, with the field `"dgraph.type":"User"` added in:
 
 ```json
-{"user":"","email":"alexander@gmail.com","username":"alex123"}
+{"dgraph.type":"User","email":"alexander@gmail.com","username":"alex123"}
 ```
 
 #### Node Types
@@ -178,7 +187,7 @@ type CustomNodeType struct {
 }
 
 func (c CustomNodeType) NodeType() string {
-	return "node_type"
+	return "NodeType"
 }
 ```
 
@@ -203,9 +212,7 @@ type User struct {
 		Username: "alex123",
 	}
 
-	// Create a transaction with context.Background() as the context
-	tx := dgman.NewTxnContext(context.Background(), c)
-	// pass true as the second parameter to commit now
+	tx := dgman.NewTxn(c)
 	if err := tx.Create(&user, true); err != nil {
 		panic(err)
 	}
@@ -407,33 +414,19 @@ type User struct {
 
 ### Query Helpers
 
-#### Get by UID
-
-```go
-// Get by UID
-tx := dgman.NewTxn(c)
-
-user := User{}
-if err := tx.Get(&user).UID("0x9cd5").Node(); err != nil {
-	if err == dgman.ErrNodeNotFound {
-		// node not found
-	}
-}
-
-// struct will be populated if found
-fmt.Println(user)
-```
+Queries and Filters can be constructed by using ordinal parameter markers in query or filter strings, for example `$1`, `$2`, which should be safe against injections. Alternatively, you can also pass GraphQL named vars, with the `Query.Vars` method, although you have to manually convert your data into strings.
 
 #### Get by Filter
 
 ```go
+name := "wildanjing"
+
 tx := dgman.NewReadOnlyTxn(c)
 
 user := User{}
 // get node with node type `user` that matches filter
 err := tx.Get(&user).
-	Vars("getUser($name: string)", map[string]string{"$name": "wildan"}). // function defintion and Graphql variables
-	Filter("allofterms(name, $name)"). // dgraph filter
+	Filter("allofterms(name, $1)", name). // dgraph filter
 	All(1). // returns all predicates, expand on 1 level of edge predicates
 	Node() // get single node from query
 if err != nil {
@@ -448,21 +441,26 @@ fmt.Println(user)
 
 #### Get by query
 
+Get by query
+
 ```go
 tx := dgman.NewReadOnlyTxn(c)
 
 users := []User{}
-query := `@filter(allofterms(name, $name)) {
-	uid
-	expand(_all_) {
-		uid
-		expand(_all_)
-	}
-}`
 // get nodes with node type `user` that matches filter
 err := tx.Get(&users).
-	Vars("getUsers($name: string)", map[string]string{"$name": "wildan"}). // function defintion and Graphql variables
-	Query(query). // dgraph query portion (without root function)
+	Query(`{
+		uid
+		name
+		friends @filter(allofterms(name, $1)) {
+			uid 
+			name
+		}
+		schools @filter(allofterms(name, $2)) {
+			uid
+			name
+		}
+	}`, "wildan", "harvard"). // dgraph query portion (without root function)
 	OrderAsc("name"). // ordering ascending by predicate
 	OrderDesc("dob"). // multiple ordering is allowed
 	First(10). // get first 10 nodes from result
@@ -479,20 +477,28 @@ fmt.Println(users)
 You can also combine `Filter` with `Query`.
 
 ```go
+name := "wildanjing"
+friendName := "wildancok"
+schoolUIDs := []string{"0x123", "0x1f"}
+
 tx := dgman.NewReadOnlyTxn(c)
 
 users := []User{}
 // get nodes with node type `user` that matches filter
 err := tx.Get(&users).
-	Vars("getUsers($name: string)", map[string]string{"$name": "wildan"}). // function defintion and Graphql variables
-	Filter("allofterms(name, $name)").
+	Filter("allofterms(name, $1)", name).
 	Query(`{
 		uid
-		expand(_all_) {
-			uid
-			expand(_all_)
+		name
+		friends @filter(name, $1) {
+			uid 
+			name
 		}
-	}`). // dgraph query portion (without root function)
+		schools @filter(uid_in($2)) {
+			uid
+			name
+		}
+	}`, friendName, dgman.UIDs(schoolUIDs)). // UIDs is a helper type to parse list of uids as a parameter
 	OrderAsc("name"). // ordering ascending by predicate
 	OrderDesc("dob"). // multiple ordering is allowed
 	First(10). // get first 10 nodes from result
@@ -502,6 +508,43 @@ if err != nil {
 
 // slice will be populated if found
 fmt.Println(users)
+```
+
+#### Get by UID
+
+```go
+// Get by UID
+tx := dgman.NewReadOnlyTxn(c)
+
+user := User{}
+if err := tx.Get(&user).UID("0x9cd5").Node(); err != nil {
+	if err == dgman.ErrNodeNotFound {
+		// node not found
+	}
+}
+
+// struct will be populated if found
+fmt.Println(user)
+```
+
+#### Scanning Query results
+
+You can alternatively specify a different destination for your query results, by passing it as a parameter to the `Node` or `Nodes`.
+
+```go
+type checkPassword struct {
+	Valid `json:"valid"`	
+}
+
+result := &checkPassword{}
+
+tx := dgman.NewReadOnlyTxnContext(ctx, s.c)
+err := tx.Get(&User{}). // User here is only to specify the node type
+	Filter("eq(email, $1)", email).
+	Query(`{ valid: checkpwd(password, $1) }`, password).
+	Node(result)
+
+fmt.Println(result.Valid)
 ```
 
 ### Delete Helper
@@ -552,7 +595,3 @@ tx := dgman.NewTxn(c)
 err := tx.Delete(&User{}, true).
 	Edge("0x12", "schools")
 ```
-
-## TODO
-- Filter generator
-- Improve query parameter passing

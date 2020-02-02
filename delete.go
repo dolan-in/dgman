@@ -34,13 +34,15 @@ type Deleter struct {
 	commitNow bool
 }
 
-func (d *Deleter) Query(query string) *Deleter {
-	d.q.query = query
+// Query defines the query portion other than the root function for deletion
+func (d *Deleter) Query(query string, params ...interface{}) *Deleter {
+	d.q.query = parseQueryWithParams(query, params)
 	return d
 }
 
-func (d *Deleter) Filter(filter string) *Deleter {
-	d.q.filter = filter
+// Filter defines a query filter, return predicates at the first depth
+func (d *Deleter) Filter(filter string, params ...interface{}) *Deleter {
+	d.q.filter = parseQueryWithParams(filter, params)
 	return d
 }
 

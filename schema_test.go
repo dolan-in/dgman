@@ -203,3 +203,19 @@ func TestOneToOneSchema(t *testing.T) {
 	}
 	assert.Len(t, schema.Schema, 3)
 }
+
+func Test_fetchExistingTypes(t *testing.T) {
+	c := newDgraphClient()
+
+	schema, err := CreateSchema(c, &User{})
+	if err != nil {
+		t.Error(err)
+	}
+
+	types, err := fetchExistingTypes(c, schema.Types)
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, types, 2)
+}

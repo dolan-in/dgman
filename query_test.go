@@ -146,7 +146,10 @@ func TestFind(t *testing.T) {
 
 	var dst []TestModel
 	tx = NewTxn(c)
-	if err := tx.Get(&dst).Filter(`allofterms(name, "wildan")`).Nodes(); err != nil {
+	if err := tx.Get(&dst).Query(`@filter(allofterms(name, $1)) { 
+		uid
+		expand(_all_)
+	}`, "wildan").Nodes(); err != nil {
 		t.Error(err)
 	}
 
@@ -420,4 +423,78 @@ func TestExpandPredicate(t *testing.T) {
 	assert.Equal(t, expectedDepthZero, expandPredicate(0))
 	assert.Equal(t, expectedDepthOne, expandPredicate(1))
 	assert.Equal(t, expectedDepthTwo, expandPredicate(2))
+}
+
+func Test_parseQueryWithParams(t *testing.T) {
+	type args struct {
+		query  string
+		params []interface{}
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{
+			name: "should parse the query with the params",
+			args: args{
+				query:  "{ valid: checkpwd(password, $1) }",
+				params: []interface{}{"password)\nemail @filter(eq(email, email"},
+			},
+			want: `{ valid: checkpwd(password, "password)\nemail @filter(eq(email, email") }`,
+		},
+		{
+			name: "should parse the query with multiple params",
+			args: args{
+				query:  "@filter(allofterms(name, $1) OR allofterms(lastname, $1) AND gt(age, $2))",
+				params: []interface{}{"wildan", 3},
+			},
+			want: `@filter(allofterms(name, "wildan") OR allofterms(lastname, "wildan") AND gt(age, 3))`,
+		},
+		{
+			name: "should parse uid as query param",
+			args: args{
+				query:  "@filter(uid($1) OR uid($2))",
+				params: []interface{}{UID("0x1234"), UID("0axz)12}345")},
+			},
+			want: "@filter(uid(0x1234) OR uid(0x12345))",
+		},
+		{
+			name: "should parse uids as query param",
+			args: args{
+				query:  "@filter(uid_in($1))",
+				params: []interface{}{UIDs([]string{"0x1234", "0axz)12}345"})},
+			},
+			want: "@filter(uid_in(0x1234, 0x12345))",
+		},
+		{
+			name: "should not parse the params, GraphQL named vars",
+			args: args{
+				query:  "{ valid: checkpwd(password, $name) }",
+				params: []interface{}{"wildanjing"},
+			},
+			want: `{ valid: checkpwd(password, $name) }`,
+		},
+		{
+			name: "should not panic on query slice out of bounds because invalid param string",
+			args: args{
+				query:  "{ valid: checkpwd(password, $",
+				params: []interface{}{"password)\nemail @filter(eq(email, email"},
+			},
+			want: `{ valid: checkpwd(password, `,
+		},
+		{
+			name: "should not panic on params slice out of bounds",
+			args: args{
+				query:  "{ valid: checkpwd(password, $1) }",
+				params: []interface{}{},
+			},
+			want: `{ valid: checkpwd(password, ) }`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, parseQueryWithParams(tt.args.query, tt.args.params))
+		})
+	}
 }
