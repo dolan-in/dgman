@@ -6,7 +6,7 @@
 ***Dgman*** is a schema manager for [Dgraph](https://dgraph.io/) using the [Go Dgraph client (dgo)](https://github.com/dgraph-io/dgo), which manages Dgraph types, schema, and indexes from Go tags in struct definitions, allowing ORM-like convenience for developing Dgraph clients in Go.
 
 ## Features
-- Create [types](https://docs.dgraph.io/query-language/#type-system) (Dgraph v1.1+) schemas and indexes from struct tags.
+- Create [types](https://docs.dgraph.io/query-language/#type-system) (Dgraph v1.1+), schemas, and indexes from struct tags.
 - Detect conflicts from existing schema and defined schema.
 - Mutate Helpers (Create, Update, Upsert).
 - Autoinject node type from struct.
