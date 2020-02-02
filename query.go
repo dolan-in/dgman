@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/dgraph-io/dgo/v2/protos/api"
@@ -32,6 +33,12 @@ import (
 var (
 	ErrNodeNotFound = errors.New("node not found")
 )
+
+// ParamFormatter provides an interface for types to implement custom
+// parameter formatter for query parameters
+type ParamFormatter interface {
+	FormatParams() []byte
+}
 
 type order struct {
 	descending bool
@@ -54,21 +61,15 @@ type Query struct {
 	query       string
 }
 
-// Model sets the node model for determining types
-func (q *Query) Model(model interface{}) *Query {
-	q.model = model
-	return q
-}
-
 // Query defines the query portion other than the root function
-func (q *Query) Query(query string) *Query {
-	q.query = query
+func (q *Query) Query(query string, params ...interface{}) *Query {
+	q.query = parseQueryWithParams(query, params)
 	return q
 }
 
 // Filter defines a query filter, return predicates at the first depth
-func (q *Query) Filter(filter string) *Query {
-	q.filter = filter
+func (q *Query) Filter(filter string, params ...interface{}) *Query {
+	q.filter = parseQueryWithParams(filter, params)
 	return q
 }
 
@@ -154,8 +155,14 @@ func (q *Query) OrderDesc(clause string) *Query {
 	return q
 }
 
-// Node returns the first single node from the query
-func (q *Query) Node() (err error) {
+// Node returns the first single node from the query,
+// optional destination can be passed, otherwise bind to model
+func (q *Query) Node(dst ...interface{}) (err error) {
+	model := q.model
+	if len(dst) > 0 {
+		model = dst[0]
+	}
+
 	// make sure only 1 node is return
 	q.first = 1
 
@@ -163,16 +170,22 @@ func (q *Query) Node() (err error) {
 	if err != nil {
 		return err
 	}
-	return Node(result, q.model)
+	return Node(result, model)
 }
 
-// Nodes returns all results from the query
-func (q *Query) Nodes() error {
+// Nodes returns all results from the query,
+// optional destination can be passed, otherwise bind to model
+func (q *Query) Nodes(dst ...interface{}) error {
+	model := q.model
+	if len(dst) > 0 {
+		model = dst[0]
+	}
+
 	result, err := q.executeQuery()
 	if err != nil {
 		return err
 	}
-	return Nodes(result, q.model)
+	return Nodes(result, model)
 }
 
 func (q *Query) String() string {
@@ -298,4 +311,57 @@ func Nodes(jsonData []byte, model interface{}) error {
 	}
 
 	return fmt.Errorf("invalid json result for nodes: %s", jsonData)
+}
+
+func parseQueryWithParams(query string, params []interface{}) string {
+	var buffer strings.Builder
+	queryLength := len(query)
+	paramsLength := len(params)
+	for pos := 0; pos < queryLength; pos++ {
+		// try to parse param index, to retrieve params
+		if query[pos] == '$' {
+			// skip if next rune is out of bounds
+			pos++
+			if pos > queryLength-1 {
+				break
+			}
+
+			var numStr []byte
+			for ; query[pos] >= '0' && query[pos] <= '9'; pos++ {
+				numStr = append(numStr, query[pos])
+			}
+
+			if numStr == nil {
+				// probably a GraphQL named var, go backwards and include the $
+				pos--
+				goto write
+			}
+
+			paramIndex, err := strconv.Atoi(string(numStr))
+			if err != nil {
+				goto write
+			}
+
+			// paramIndex starts from 1
+			if paramIndex > paramsLength {
+				goto write
+			}
+
+			var paramString []byte
+			param := params[paramIndex-1]
+			if formatter, ok := param.(ParamFormatter); ok {
+				paramString = formatter.FormatParams()
+			} else {
+				paramString, err = json.Marshal(param)
+				if err != nil {
+					goto write
+				}
+			}
+
+			buffer.Write(paramString)
+		}
+	write:
+		buffer.WriteByte(query[pos])
+	}
+	return buffer.String()
 }

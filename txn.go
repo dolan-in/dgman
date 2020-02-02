@@ -23,6 +23,12 @@ func (t *TxnContext) Discard() error {
 	return t.txn.Discard(t.ctx)
 }
 
+// BestEffort enables best effort in read-only queries.
+func (t *TxnContext) BestEffort() *TxnContext {
+	t.txn.BestEffort()
+	return t
+}
+
 // Txn returns the dgo transaction
 func (t *TxnContext) Txn() *dgo.Txn {
 	return t.txn

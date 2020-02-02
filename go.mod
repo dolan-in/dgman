@@ -6,8 +6,10 @@ require (
 	github.com/cncf/udpa/go v0.0.0-20200124205748-db4b343e48c1 // indirect
 	github.com/creack/pty v1.1.9 // indirect
 	github.com/davecgh/go-spew v1.1.1
+	github.com/dgraph-io/dgo v1.0.0
 	github.com/dgraph-io/dgo/v2 v2.1.0
 	github.com/envoyproxy/go-control-plane v0.9.2 // indirect
+	github.com/gin-gonic/gin v1.5.0
 	github.com/golang/mock v1.4.0 // indirect
 	github.com/golang/protobuf v1.3.2
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
@@ -34,5 +36,6 @@ require (
 	google.golang.org/genproto v0.0.0-20200122232147-0452cf42e150
 	google.golang.org/grpc v1.26.0
 	gopkg.in/yaml.v2 v2.2.8 // indirect
+	grpc.go4.org v0.0.0-20170609214715-11d0a25b4919
 	rsc.io/sampler v1.99.99 // indirect
 )
