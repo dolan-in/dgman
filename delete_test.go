@@ -170,22 +170,16 @@ func TestDeleteQueryNode(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	school := School{
-		Name: "wildan's school",
-	}
-	tx := NewTxn(c)
-
-	err := tx.Create(&school, true)
-	if err != nil {
-		t.Error(err)
-	}
-
 	users := []*User{
 		&User{
 			Name:     "wildan",
 			Username: "wildan",
 			Email:    "wildan2711@gmail.com",
-			Schools:  []School{school},
+			Schools: []School{
+				School{
+					Name: "wildan's school",
+				},
+			},
 		},
 		&User{
 			Name:     "wildan",
@@ -199,9 +193,9 @@ func TestDeleteQueryNode(t *testing.T) {
 		},
 	}
 
-	tx = NewTxn(c)
+	tx := NewTxn(c)
 
-	err = tx.Create(&users)
+	err := tx.Create(&users)
 	if err != nil {
 		t.Error(err)
 	}
@@ -260,6 +254,8 @@ func TestDeleteEdge(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+
+	assert.NotZero(t, schools[0].UID)
 
 	user := User{
 		Name:     "wildan",

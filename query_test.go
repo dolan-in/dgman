@@ -31,11 +31,13 @@ type TestModel struct {
 	Age     int        `json:"age" dgraph:"index=int"`
 	Dead    bool       `json:"dead"`
 	Edges   []TestEdge `json:"edges"`
+	DType   []string   `json:"dgraph.type,omitempty"`
 }
 
 type TestEdge struct {
-	UID   string `json:"uid"`
-	Level string `json:"level"`
+	UID   string   `json:"uid"`
+	Level string   `json:"level"`
+	DType []string `json:"dgraph.type,omitempty"`
 }
 
 func TestGetByUID(t *testing.T) {
@@ -366,6 +368,7 @@ func TestOrder(t *testing.T) {
 
 	for i, r := range result {
 		log.Println(*r)
+		models[i].DType = nil
 		assert.Equal(t, models[i], r)
 	}
 

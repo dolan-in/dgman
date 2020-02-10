@@ -148,9 +148,11 @@ func (t *TypeSchema) Marshal(parseType bool, models ...interface{}) {
 				continue
 			}
 
-			schema, _ := t.Schema[s.Predicate]
-			// don't need to parse uid, don't parse facets
-			parse := s.Predicate != "" && s.Predicate != "uid" && !strings.Contains(s.Predicate, "|")
+			schema, exists := t.Schema[s.Predicate]
+			parse := s.Predicate != "" &&
+				s.Predicate != "uid" && // don't parse uid
+				s.Predicate != dgraphTypePredicate && // don't parse dgraph.type
+				!strings.Contains(s.Predicate, "|") // don't parse facet
 			if parse {
 				// one-to-one and many-to-many edge
 				if s.Type == "uid" || s.Type == "[uid]" {
@@ -163,7 +165,7 @@ func (t *TypeSchema) Marshal(parseType bool, models ...interface{}) {
 				if parseType {
 					t.Types[nodeType][s.Predicate] = s
 				}
-				if schema != nil && schema.String() != s.String() {
+				if exists && schema.String() != s.String() {
 					log.Printf("conflicting schema %s, already defined as \"%s\", trying to define \"%s\"\n", s.Predicate, schema.String(), s.String())
 				} else {
 					t.Schema[s.Predicate] = s
@@ -410,34 +412,29 @@ func MutateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
 	return typeSchema, nil
 }
 
-// GetNodeType gets node type from NodeType() method of Node interface
-// if it doesn't implement it, get it from the struct name
+// GetNodeType gets node type from the struct name, or "dgraph" tag
+// in the "dgraph.type" predicate/json tag
 func GetNodeType(data interface{}) string {
-	// check if data implements node interface
-	if node, ok := data.(NodeType); ok {
-		return node.NodeType()
-	}
 	// get node type from struct name
-	structName := ""
+	nodeType := ""
 	dataType := reflect.TypeOf(data)
-
-	switch dataType.Kind() {
-	case reflect.Struct:
-		structName = dataType.Name()
-	case reflect.Ptr, reflect.Slice:
+	for dataType.Kind() != reflect.Struct {
 		dataType = dataType.Elem()
-		switch dataType.Kind() {
-		case reflect.Struct:
-			structName = dataType.Name()
-		case reflect.Ptr, reflect.Slice:
-			elem := dataType.Elem()
+	}
 
-			if elem.Kind() == reflect.Ptr {
-				elem = elem.Elem()
+	nodeType = dataType.Name()
+
+	for i := dataType.NumField() - 1; i >= 0; i-- {
+		field := dataType.Field(i)
+		predicate := getPredicate(&field)
+
+		if predicate == dgraphTypePredicate {
+			dgraphTag := field.Tag.Get(tagName)
+			if dgraphTag != "" {
+				nodeType = dgraphTag
 			}
-
-			structName = elem.Name()
+			break
 		}
 	}
-	return structName
+	return nodeType
 }

@@ -20,18 +20,21 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
 
 type TestNode struct {
-	UID   string `json:"uid,omitempty"`
-	Field string `json:"field,omitempty"`
+	UID   string   `json:"uid,omitempty"`
+	Field string   `json:"field,omitempty"`
+	DType []string `json:"dgraph.type,omitempty"`
 }
 
 type TestCustomNode struct {
-	UID   string `json:"uid,omitempty"`
-	Field string `json:"field,omitempty"`
+	UID   string   `json:"uid,omitempty"`
+	Field string   `json:"field,omitempty"`
+	DType []string `json:"dgraph.type,omitempty" dgraph:"CustomNodeType"`
 }
 
 type TestUnique struct {
@@ -41,10 +44,108 @@ type TestUnique struct {
 	Email      string `json:"email,omitempty" dgraph:"index=term unique notnull"`
 	No         int    `json:"no,omitempty" dgraph:"index=int unique"`
 	unexported int
+	DType      []string `json:"dgraph.type,omitempty"`
 }
 
-func (n TestCustomNode) NodeType() string {
-	return "CustomNodeType"
+type TestDTypeString struct {
+	UID   string `json:"uid,omitempty"`
+	Name  string `json:"name,omitempty"`
+	DType string `json:"dgraph.type,omitempty"`
+}
+
+type TestDTypeSlice struct {
+	UID          string                 `json:"uid,omitempty"`
+	Name         string                 `json:"name,omitempty"`
+	Edge         TestDTypeSliceInner    `json:"edge,omitempty"`
+	PtrEdge      *TestDTypeSliceInner   `json:"ptr_edge,omitempty"`
+	SliceEdge    []TestDTypeSliceInner  `json:"slice_edge,omitempty"`
+	SlicePtrEdge []*TestDTypeSliceInner `json:"slice_ptr_edge,omitempty"`
+	Time         *time.Time             `json:"time,omitempty"`
+	Times        []*time.Time           `json:"times,omitempty"`
+	DType        []string               `json:"dgraph.type,omitempty"`
+}
+
+type TestDTypeAnonymous struct {
+	Field string `json:"field,omitempty"`
+	TestDTypeSliceInner
+	DType []string `json:"dgraph.type,omitempty"`
+}
+
+type TestDTypeSliceInner struct {
+	UID   string   `json:"uid,omitempty"`
+	Name  string   `json:"name,omitempty"`
+	DType []string `json:"dgraph.type,omitempty"`
+}
+
+func Test_marshalAndInjectType(t *testing.T) {
+	type args struct {
+		data interface{}
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    []byte
+		wantErr bool
+	}{
+		{
+			name:    "should inject string in dgraph.type for struct",
+			args:    args{&TestDTypeString{Name: "wildan"}},
+			want:    []byte(`{"name":"wildan","dgraph.type":"TestDTypeString"}`),
+			wantErr: false,
+		},
+		{
+			name: "should inject slice of string in dgraph.type for struct",
+			args: args{&TestDTypeSlice{
+				Name:    "wildan",
+				Edge:    TestDTypeSliceInner{Name: "wildanjing"},
+				PtrEdge: &TestDTypeSliceInner{Name: "wildanjing2"},
+				SliceEdge: []TestDTypeSliceInner{
+					TestDTypeSliceInner{Name: "wildanjing3"},
+				},
+				SlicePtrEdge: []*TestDTypeSliceInner{
+					&TestDTypeSliceInner{Name: "wildanjing4"},
+				},
+			}},
+			want:    []byte(`{"name":"wildan","edge":{"name":"wildanjing","dgraph.type":["TestDTypeSliceInner"]},"ptr_edge":{"name":"wildanjing2","dgraph.type":["TestDTypeSliceInner"]},"slice_edge":[{"name":"wildanjing3","dgraph.type":["TestDTypeSliceInner"]}],"slice_ptr_edge":[{"name":"wildanjing4","dgraph.type":["TestDTypeSliceInner"]}],"dgraph.type":["TestDTypeSlice"]}`),
+			wantErr: false,
+		},
+		{
+			name: "should inject slice of string in dgraph.type for slice",
+			args: args{&[]TestDTypeSlice{
+				TestDTypeSlice{
+					Name:    "wildan",
+					Edge:    TestDTypeSliceInner{Name: "wildanjing"},
+					PtrEdge: &TestDTypeSliceInner{Name: "wildanjing2"},
+				},
+				TestDTypeSlice{
+					Name:    "wildan",
+					Edge:    TestDTypeSliceInner{Name: "wildanjing"},
+					PtrEdge: &TestDTypeSliceInner{Name: "wildanjing2"},
+				},
+			}},
+			want:    []byte(`[{"name":"wildan","edge":{"name":"wildanjing","dgraph.type":["TestDTypeSliceInner"]},"ptr_edge":{"name":"wildanjing2","dgraph.type":["TestDTypeSliceInner"]},"dgraph.type":["TestDTypeSlice"]},{"name":"wildan","edge":{"name":"wildanjing","dgraph.type":["TestDTypeSliceInner"]},"ptr_edge":{"name":"wildanjing2","dgraph.type":["TestDTypeSliceInner"]},"dgraph.type":["TestDTypeSlice"]}]`),
+			wantErr: false,
+		},
+		{
+			name: "should parse anonymous structs with dgraph.type",
+			args: args{&TestDTypeAnonymous{
+				TestDTypeSliceInner: TestDTypeSliceInner{
+					Name: "wildan",
+				},
+			}},
+			want: []byte(`{"name":"wildan","dgraph.type":["TestDTypeAnonymous"]}`),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := marshalAndInjectType(tt.args.data)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("marshalAndInjectTypeV2() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			assert.Equal(t, string(tt.want), string(got))
+		})
+	}
 }
 
 func TestUniqueError_Error(t *testing.T) {
@@ -52,7 +153,7 @@ func TestUniqueError_Error(t *testing.T) {
 }
 
 func TestAddNode(t *testing.T) {
-	testData := &TestNode{"", "test"}
+	testData := &TestNode{Field: "test"}
 
 	c := newDgraphClient()
 	defer dropAll(c)
@@ -93,7 +194,7 @@ func TestAddNode(t *testing.T) {
 }
 
 func TestAddCustomNode(t *testing.T) {
-	testData := TestCustomNode{"", "test"}
+	testData := TestCustomNode{Field: "test"}
 
 	c := newDgraphClient()
 	defer dropAll(c)
@@ -132,50 +233,21 @@ func TestAddCustomNode(t *testing.T) {
 	assert.Equal(t, testData.UID, result.Data[0].UID)
 }
 
-func TestAddNodeType(t *testing.T) {
-	testData := TestNode{"", "test"}
-	jsonData, err := marshalAndInjectType(&testData)
-	if err != nil {
-		t.Error(err)
-	}
-
-	// object
-	expected := "{\"dgraph.type\":\"TestNode\",\"field\":\"test\"}"
-	if string(jsonData) != expected {
-		t.Errorf("expected %s got %s", expected, jsonData)
-	}
-
-	testDataArray := []TestNode{
-		TestNode{"", "test"},
-		TestNode{"", "test"},
-	}
-
-	// array
-	expected = `[{"dgraph.type":"TestNode","field":"test"},{"dgraph.type":"TestNode","field":"test"}]`
-	jsonData, err = marshalAndInjectType(&testDataArray)
-	if err != nil {
-		t.Error(err)
-	}
-	if string(jsonData) != expected {
-		t.Errorf("expected %s got %s", expected, jsonData)
-	}
-}
-
 func TestCreate(t *testing.T) {
-	testUnique := []*TestUnique{
-		&TestUnique{
+	testUnique := []TestUnique{
+		TestUnique{
 			Name:     "H3h3",
 			Username: "wildan",
 			Email:    "wildan2711@gmail.com",
 			No:       1,
 		},
-		&TestUnique{
+		TestUnique{
 			Name:     "PooDiePie",
 			Username: "wildansyah",
 			Email:    "wildansyah2711@gmail.com",
 			No:       2,
 		},
-		&TestUnique{
+		TestUnique{
 			Name:     "Poopsie",
 			Username: "wildani",
 			Email:    "wildani@gmail.com",
@@ -205,20 +277,20 @@ func TestCreate(t *testing.T) {
 		}
 	}
 
-	testDuplicate := []*TestUnique{
-		&TestUnique{
+	testDuplicate := []TestUnique{
+		TestUnique{
 			Name:     "H3h3",
 			Username: "wildanjing",
 			Email:    "wildan2711@gmail.com",
 			No:       4,
 		},
-		&TestUnique{
+		TestUnique{
 			Name:     "PooDiePie",
 			Username: "wildansyah",
 			Email:    "wildanodol2711@gmail.com",
 			No:       5,
 		},
-		&TestUnique{
+		TestUnique{
 			Name:     "lalap",
 			Username: "lalap",
 			Email:    "lalap@gmail.com",
@@ -230,7 +302,7 @@ func TestCreate(t *testing.T) {
 
 	var duplicates []*UniqueError
 	for _, data := range testDuplicate {
-		err := tx.Create(data)
+		err := tx.Create(&data)
 		if err != nil {
 			if uniqueError, ok := err.(*UniqueError); ok {
 				duplicates = append(duplicates, uniqueError)
@@ -296,14 +368,14 @@ func TestUpdate(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	testUniques := []*TestUnique{
-		&TestUnique{
+	testUniques := []TestUnique{
+		TestUnique{
 			Name:     "haha",
 			Username: "",
 			Email:    "wildan2711@gmail.com",
 			No:       1,
 		},
-		&TestUnique{
+		TestUnique{
 			Name:     "haha 2",
 			Username: "wildancok2711",
 			Email:    "wildancok2711@gmail.com",
@@ -320,7 +392,7 @@ func TestUpdate(t *testing.T) {
 	testUpdate.Username = "wildan2711"
 
 	tx = NewTxn(c)
-	if err := tx.Update(testUpdate, true); err != nil {
+	if err := tx.Update(&testUpdate, true); err != nil {
 		t.Error(err)
 	}
 
@@ -328,7 +400,7 @@ func TestUpdate(t *testing.T) {
 	testUpdate2.Username = "wildan2711"
 
 	tx = NewTxn(c)
-	if err := tx.Update(testUpdate2, true); err != nil {
+	if err := tx.Update(&testUpdate2, true); err != nil {
 		if uniqueErr, ok := err.(*UniqueError); ok {
 			if uniqueErr.Field != "username" {
 				t.Error("wrong unique field")
@@ -382,6 +454,7 @@ func TestUpsert(t *testing.T) {
 		t.Error(err)
 	}
 
+	testUpsert2.DType = nil
 	assert.Equal(t, testUpsert2, result)
 
 	// make sure unique checking still holds
@@ -424,14 +497,14 @@ func TestCreateOrGet(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	testUniques := []*TestUnique{
-		&TestUnique{
+	testUniques := []TestUnique{
+		TestUnique{
 			Name:     "haha",
 			Username: "wilcok",
 			Email:    "wildan2711@gmail.com",
 			No:       1,
 		},
-		&TestUnique{
+		TestUnique{
 			Name:     "haha 2",
 			Username: "wildancok2711",
 			Email:    "wildancok2711@gmail.com",
@@ -448,7 +521,7 @@ func TestCreateOrGet(t *testing.T) {
 	testCreateOrGet.Email = "wildan2711@gmail.com"
 
 	tx = NewTxn(c)
-	if err := tx.CreateOrGet(testCreateOrGet, "email", true); err != nil {
+	if err := tx.CreateOrGet(&testCreateOrGet, "email", true); err != nil {
 		t.Error(err)
 	}
 

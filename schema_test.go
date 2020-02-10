@@ -37,6 +37,7 @@ type User struct {
 	Email      string       `json:"email,omitempty" dgraph:"index=hash unique"`
 	Password   string       `json:"password,omitempty"`
 	Height     *int         `json:"height,omitempty"`
+	IsAdmin    bool         `json:"is_admin,omitempty"`
 	Dob        *time.Time   `json:"dob,omitempty"`
 	Status     EnumType     `json:"status,omitempty" dgraph:"type=int"`
 	Created    *time.Time   `json:"created,omitempty"`
@@ -48,6 +49,7 @@ type User struct {
 	School     School       `json:"school" dgraph:"count reverse"`
 	SchoolPtr  *School      `json:"school_ptr" dgraph:"count reverse"`
 	*Anonymous
+	DType []string `json:"dgraph.type"`
 }
 
 type Anonymous struct {
@@ -56,28 +58,31 @@ type Anonymous struct {
 }
 
 type School struct {
-	UID      string  `json:"uid,omitempty"`
-	Name     string  `json:"name,omitempty"`
-	Location *GeoLoc `json:"location,omitempty" dgraph:"type=geo"` // test passing type
+	UID      string   `json:"uid,omitempty"`
+	Name     string   `json:"name,omitempty"`
+	Location *GeoLoc  `json:"location,omitempty" dgraph:"type=geo"` // test passing type
+	DType    []string `json:"dgraph.type"`
 }
 
 type OneToOne struct {
-	UID    string `json:"uid,omitempty"`
-	School School `json:"school,omitempty"`
+	UID    string   `json:"uid,omitempty"`
+	School School   `json:"school,omitempty"`
+	DType  []string `json:"dgraph.type"`
 }
 
 type NewUser struct {
-	UID      string `json:"uid,omitempty"`
-	Username string `json:"username,omitempty" dgraph:"index=term"`
-	Email    string `json:"email,omitempty" dgraph:"index=term"`
-	Password string `json:"password,omitempty"`
+	UID      string   `json:"uid,omitempty"`
+	Username string   `json:"username,omitempty" dgraph:"index=term"`
+	Email    string   `json:"email,omitempty" dgraph:"index=term"`
+	Password string   `json:"password,omitempty"`
+	DType    []string `json:"dgraph.type"`
 }
 
 func TestMarshalSchema(t *testing.T) {
 	typeSchema := NewTypeSchema()
 	typeSchema.Marshal(true, &User{})
 	types, schema := typeSchema.Types, typeSchema.Schema
-	assert.Len(t, schema, 18)
+	assert.Len(t, schema, 19)
 	assert.Contains(t, schema, "username")
 	assert.Contains(t, schema, "email")
 	assert.Contains(t, schema, "password")
@@ -86,6 +91,7 @@ func TestMarshalSchema(t *testing.T) {
 	assert.Contains(t, schema, "mobiles")
 	assert.Contains(t, schema, "status")
 	assert.Contains(t, schema, "dob")
+	assert.Contains(t, schema, "is_admin")
 	assert.Contains(t, schema, "created")
 	assert.Contains(t, schema, "dates")
 	assert.Contains(t, schema, "dates_ptr")
@@ -108,6 +114,7 @@ func TestMarshalSchema(t *testing.T) {
 	assert.Equal(t, "status: int .", schema["status"].String())
 	assert.Equal(t, "height: int .", schema["height"].String())
 	assert.Equal(t, "dob: datetime .", schema["dob"].String())
+	assert.Equal(t, "is_admin: bool .", schema["is_admin"].String())
 	assert.Equal(t, "created: datetime .", schema["created"].String())
 	assert.Equal(t, "dates: [datetime] .", schema["dates"].String())
 	assert.Equal(t, "dates_ptr: [datetime] .", schema["dates_ptr"].String())
@@ -118,7 +125,7 @@ func TestMarshalSchema(t *testing.T) {
 	assert.Len(t, types, 2)
 	assert.Contains(t, types, "User")
 	assert.Contains(t, types, "School")
-	assert.Len(t, types["User"], 15)
+	assert.Len(t, types["User"], 16)
 	assert.Len(t, types["School"], 2)
 }
 
@@ -142,7 +149,7 @@ func TestCreateSchema(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	assert.Len(t, firstSchema.Schema, 18)
+	assert.Len(t, firstSchema.Schema, 19)
 	assert.Len(t, firstSchema.Types, 2)
 
 	secondSchema, err := CreateSchema(c, &NewUser{})
@@ -169,7 +176,7 @@ func TestMutateSchema(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	assert.Len(t, firstSchema.Schema, 18)
+	assert.Len(t, firstSchema.Schema, 19)
 	assert.Len(t, firstSchema.Types, 2)
 
 	secondSchema, err := MutateSchema(c, &NewUser{})

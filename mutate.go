@@ -17,7 +17,6 @@
 package dgman
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -28,6 +27,10 @@ import (
 	"github.com/dgraph-io/dgo/v2"
 	"github.com/dgraph-io/dgo/v2/protos/api"
 	"github.com/pkg/errors"
+)
+
+const (
+	dgraphTypePredicate = "dgraph.type"
 )
 
 // UniqueError returns the field and value that failed the unique node check
@@ -226,6 +229,10 @@ func (m *mutation) generateRequest() (req *api.Request, err error) {
 		query, condition, err := m.generateQueryConditions(v.Interface(), i)
 		if err != nil {
 			return nil, err
+		}
+
+		if v.Kind() != reflect.Ptr {
+			v = v.Addr()
 		}
 
 		setJSON, err := marshalAndInjectType(v.Interface())
@@ -444,32 +451,93 @@ func isNull(x interface{}) bool {
 	return x == nil || reflect.DeepEqual(x, reflect.Zero(reflect.TypeOf(x)).Interface())
 }
 
-func marshalAndInjectType(data interface{}) ([]byte, error) {
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		return nil, errors.Wrap(err, "marshal")
-	}
+func isTime(refType reflect.Type) bool {
+	return refType.PkgPath() == "time"
+}
 
-	nodeType := GetNodeType(data)
+func injectTypeInValue(refVal *reflect.Value) error {
+	refType := refVal.Type()
+	for i := refVal.NumField() - 1; i >= 0; i-- {
+		field := refType.Field(i)
+		fieldVal := refVal.Field(i)
 
-	jsonString := jsonData
-	switch jsonString[0] {
-	case '{': // if JSON object, starts with "{"
-		result := `{"dgraph.type":"` + nodeType + `",` + string(jsonData[1:])
-		return []byte(result), nil
-	case '[': // if JSON array, starts with "[", inject node type one by one
-		var result bytes.Buffer
-		for _, char := range jsonString {
-			if char == '{' {
-				result.WriteString(`{"dgraph.type":"`)
-				result.WriteString(nodeType)
-				result.WriteString(`",`)
+		predicate := getPredicate(&field)
+		if predicate == dgraphTypePredicate {
+			nodeType := GetNodeType(refVal.Interface())
+			switch field.Type.Kind() {
+			case reflect.String:
+				fieldVal.SetString(nodeType)
+			case reflect.Slice:
+				if field.Type.Elem().Kind() != reflect.String {
+					return errors.New(`"dgraph.type" field is not a slice of strings`)
+				}
+				fieldVal.Set(reflect.ValueOf([]string{nodeType}))
+			default:
+				return errors.New(`unsupported type for "dgraph.type" predicate`)
+			}
+		}
+
+		// nested structure, try to traverse
+		switch field.Type.Kind() {
+		case reflect.Ptr:
+			elemType := field.Type.Elem()
+			if elemType.Kind() != reflect.Struct || isTime(elemType) {
 				continue
 			}
-			result.WriteByte(char)
+		case reflect.Slice:
+			elemType := field.Type.Elem()
+			if elemType.Kind() == reflect.Ptr {
+				elemType = elemType.Elem()
+			}
+			if elemType.Kind() != reflect.Struct || isTime(elemType) {
+				continue
+			}
+			fieldVal = fieldVal.Addr()
+		case reflect.Struct:
+			if isTime(field.Type) {
+				continue
+			}
+			fieldVal = fieldVal.Addr()
+		default:
+			continue
 		}
-		return result.Bytes(), nil
+		if err := injectType(fieldVal.Interface()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func injectType(data interface{}) error {
+	refVal := reflect.ValueOf(data)
+	if refVal.Type().Kind() != reflect.Ptr {
+		return fmt.Errorf("passed model %s is not a pointer", refVal.Type())
 	}
 
-	return jsonData, nil
+	refVal = refVal.Elem()
+	switch refVal.Kind() {
+	case reflect.Slice:
+		for i := refVal.Len() - 1; i >= 0; i-- {
+			elVal := refVal.Index(i)
+			if elVal.Kind() == reflect.Ptr {
+				elVal = elVal.Elem()
+			}
+			if err := injectTypeInValue(&elVal); err != nil {
+				return err
+			}
+		}
+	case reflect.Struct:
+		if err := injectTypeInValue(&refVal); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func marshalAndInjectType(data interface{}) ([]byte, error) {
+	if err := injectType(data); err != nil {
+		return nil, errors.Wrap(err, "inject type")
+	}
+	return json.Marshal(data)
 }

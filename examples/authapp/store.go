@@ -19,6 +19,7 @@ type User struct {
 	Email    string     `json:"email,omitempty" dgraph:"index=exact unique"`
 	Password string     `json:"password,omitempty" dgraph:"type=password"`
 	Dob      *time.Time `json:"dob,omitempty"`
+	DType    []string   `json:"dgraph.type,omitempty"`
 }
 
 type checkPassword struct {
