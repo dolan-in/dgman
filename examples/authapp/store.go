@@ -2,10 +2,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/dgraph-io/dgo/v2"
 	"github.com/dolan-in/dgman"
+)
+
+var (
+	ErrEmailExists  = errors.New("email already exists")
+	ErrUserNotFound = errors.New("user not found")
 )
 
 type Login struct {
@@ -29,7 +35,6 @@ type checkPassword struct {
 type UserStore interface {
 	Create(context.Context, *User) error
 	CheckPassword(context.Context, *Login) (bool, error)
-	Update(context.Context, *User) error
 	Get(ctx context.Context, uid string) (*User, error)
 }
 
@@ -38,7 +43,16 @@ type userStore struct {
 }
 
 func (s *userStore) Create(ctx context.Context, user *User) error {
-	return dgman.NewTxnContext(ctx, s.c).Create(user, true)
+	err := dgman.NewTxnContext(ctx, s.c).Create(user, true)
+	if err != nil {
+		if uniqueErr, ok := err.(*dgman.UniqueError); ok {
+			if uniqueErr.Field == "email" {
+				return ErrEmailExists
+			}
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *userStore) CheckPassword(ctx context.Context, login *Login) (bool, error) {
@@ -50,14 +64,12 @@ func (s *userStore) CheckPassword(ctx context.Context, login *Login) (bool, erro
 		Query(`{ valid: checkpwd(password, $1) }`, login.Password).
 		Node(result)
 	if err != nil {
-		return false, err
+		if err == dgman.ErrNodeNotFound {
+			return false, ErrUserNotFound
+		}
 	}
 
 	return result.Valid, nil
-}
-
-func (s *userStore) Update(ctx context.Context, user *User) error {
-	return dgman.NewTxnContext(ctx, s.c).Update(user, true)
 }
 
 func (s *userStore) Get(ctx context.Context, uid string) (*User, error) {
@@ -67,7 +79,9 @@ func (s *userStore) Get(ctx context.Context, uid string) (*User, error) {
 		UID(uid).
 		Node()
 	if err != nil {
-		return nil, err
+		if err == dgman.ErrNodeNotFound {
+			return nil, ErrUserNotFound
+		}
 	}
 	return user, nil
 }
