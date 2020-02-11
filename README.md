@@ -23,19 +23,19 @@
 - [Installation](#installation)
 - [Usage](#usage)
   - [Schema Definition](#schema-definition)
+    - [Node Types](#node-types)
     - [CreateSchema](#createschema)
     - [MutateSchema](#mutateschema)
   - [Mutate Helpers](#mutate-helpers)
     - [Mutate](#mutate)
-    - [Node Types](#node-types)
     - [Create (Mutate with Unique Checking)](#create-mutate-with-unique-checking)
     - [Upsert](#upsert)
     - [Create Or Get](#create-or-get)
     - [Update On Conflict](#update-on-conflict)
   - [Query Helpers](#query-helpers)
-    - [Get by UID](#get-by-uid)
     - [Get by Filter](#get-by-filter)
     - [Get by Query](#get-by-query)
+    - [Get by UID](#get-by-uid)
   - [Delete Helper](#delete-helper)
 
 ## Installation
@@ -54,14 +54,29 @@ import(
 
 ### Schema Definition
 
-Schemas are defined using Go structs which defines the predicate name from the `json` tag, indices and directives using the `dgraph` tag.
+Schemas are defined using Go structs which defines the predicate name from the `json` tag, indices and directives using the `dgraph` tag. To define a dgraph node struct, `json` fields `uid` and `dgraph.type` is required.
+
+
+#### Node Types
+
+[Node types](https://docs.dgraph.io/query-language/#type-system) will be inferred from the struct name.
+
+If you need to define a custom name for the node type, you can define it on the `dgraph` tag on the `dgraph.type` field.
+
+```go
+type CustomNodeType struct {
+	UID 	string 		`json:"uid,omitempty"`
+	Name 	string 		`json:"name,omitempty"`
+	DType	[]string 	`json:"dgraph.type" dgraph:"CustomNodeType"`
+}
+```
 
 #### CreateSchema
 
 Using the `CreateSchema` function, it will install the schema, and detect schema and index conflicts within the passed structs and with the currently existing schema in the specified Dgraph database.
 
 ```go
-// User is a node, nodes have a uid field
+// User is a node, nodes have a uid and a dgraph.type json field
 type User struct {
 	UID      string     `json:"uid,omitempty"`
 	Name     string     `json:"name,omitempty" dgraph:"index=term"` // use term index 
@@ -74,6 +89,7 @@ type User struct {
 	Created  time.Time  `json:"created,omitempty" dgraph:"index=day"` // will be inferred as dateTime schema type, with day index
 	Mobiles  []string   `json:"mobiles,omitempty"` // will be inferred as using the  [string] schema type, slices with primitive types will all be inferred as lists
 	Schools  []School   `json:"schools,omitempty" dgraph:"count reverse"` // defines an edge to other nodes, add count index, add reverse edges
+	DType    []string   `json:"dgraph.type,omitempty"`
 }
 
 // School is another node, that will be connected to User node using the schools predicate
@@ -81,6 +97,7 @@ type School struct {
 	UID      string 	`json:"uid,omitempty"`
 	Name     string 	`json:"name,omitempty"`
 	Location *GeoLoc 	`json:"location,omitempty" dgraph:"type=geo"` // for geo schema type, need to specify explicitly
+	DType    []string   `json:"dgraph.type,omitempty"`
 }
 
 type GeoLoc struct {
@@ -108,26 +125,43 @@ func main() {
 
 ```
 
-On an empty database, the above code will return the generated schema string used to create the schema, logging the conflicting schemas in the process:
+On an empty database, the above code will return the generated type and schema string used to create the schema, logging the conflicting schemas in the process:
 
 ```
 2018/12/14 02:23:48 conflicting schema name, already defined as "name: string @index(term) .", trying to define "name: string ."
-username: string @index(hash) .
 status: int .
-created: dateTime @index(day) .
 mobiles: [string] .
-schools: uid @count @reverse .
-user: string .
 email: string @index(hash) @upsert .
 password: string .
 height: int .
-dob: dateTime .
-school: string .
-location: geo .
+dob: datetime .
+schools: [uid] @count @reverse .
 name: string @index(term) .
+username: string @index(hash) .
+created: datetime @index(day) .
+location: geo .
+
+type School {
+        location
+        name
+}
+type User {
+        status
+        created
+        username
+        password
+        height
+        dob
+        name
+        email
+        mobiles
+        schools
+}
 ```
 
-When schema conflicts is detected with the existing schema already installed in the database, it will only log the differences. You would need to manually correct the conflicts by dropping or updating the schema manually.
+When schema conflicts is detected with the existing schema already installed in the database, it will only log the differences. You would need to manually correct the conflicts by dropping or updating the schema manually. 
+
+This may be useful to prevent unnecessary or unwanted re-indexing of your data.
 
 #### MutateSchema
 
@@ -147,7 +181,7 @@ To overwrite/update index definitions, you can use the `MutateSchema` function, 
 
 #### Mutate
 
-Using the `Mutate` function, before sending a mutation, it will marshall a struct into JSON and injecting the Dgraph [node type](https://docs.dgraph.io/query-language/#type-system) ("dgraph.type" predicate).
+Using the `Mutate` function, before sending a mutation, it will marshal a struct into JSON and injecting the Dgraph [node type](https://docs.dgraph.io/query-language/#type-system) ("dgraph.type" predicate).
 
 ```go
 user := User{
@@ -168,27 +202,10 @@ if err := tx.Mutate(&user, true); err != nil {
 fmt.Println(user.UID)
 ```
 
-The above will insert a node with the following JSON string, with the field `"dgraph.type":"User"` added in:
+The above will insert a node with the following JSON string, with the field `"dgraph.type":["User"]` added in:
 
 ```json
-{"dgraph.type":"User","email":"alexander@gmail.com","username":"alex123"}
-```
-
-#### Node Types
-
-[Node types](https://docs.dgraph.io/query-language/#type-system) will be inferred from the struct name.
-
-If you need to define a custom name for the node type, you can define the `NodeType() string` method on the struct.
-
-```go
-type CustomNodeType struct {
-	UID 	string `json:"uid,omitempty"`
-	Name 	string `json:"name,omitempty"`
-}
-
-func (c CustomNodeType) NodeType() string {
-	return "NodeType"
-}
+{"email":"alexander@gmail.com","username":"alex123","dgraph.type":["User"]}
 ```
 
 #### Create (Mutate with Unique Checking)

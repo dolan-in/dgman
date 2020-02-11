@@ -4,7 +4,6 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/dolan-in/dgman"
 	"github.com/gin-gonic/gin"
 )
 
@@ -20,14 +19,12 @@ func (a *userAPI) Register(c *gin.Context) {
 	}
 
 	if err := a.store.Create(c, &user); err != nil {
-		if uniqueErr, ok := err.(*dgman.UniqueError); ok {
-			if uniqueErr.Field == "email" {
-				c.AbortWithStatusJSON(http.StatusConflict, gin.H{
-					"id":      "emailExists",
-					"message": "User with the email already exists",
-				})
-				return
-			}
+		if err == ErrEmailExists {
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{
+				"id":      "emailExists",
+				"message": "User with the email already exists",
+			})
+			return
 		}
 		log.Println("create user error", err)
 		c.AbortWithStatus(http.StatusInternalServerError)
@@ -46,9 +43,9 @@ func (a *userAPI) Login(c *gin.Context) {
 
 	valid, err := a.store.CheckPassword(c, &login)
 	if err != nil {
-		if err == dgman.ErrNodeNotFound {
+		if err == ErrUserNotFound {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"id":      "invalidLogin",
+				"id":      "invalidEmail",
 				"message": "No user associated with the email",
 			})
 			return
@@ -60,8 +57,8 @@ func (a *userAPI) Login(c *gin.Context) {
 
 	if !valid {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-			"id":      "invalidLogin",
-			"message": "No user associated with the email",
+			"id":      "invalidPassword",
+			"message": "Invalid password for the email",
 		})
 		return
 	}
