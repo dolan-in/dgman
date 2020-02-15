@@ -41,7 +41,7 @@ func (a *userAPI) Login(c *gin.Context) {
 		return
 	}
 
-	valid, err := a.store.CheckPassword(c, &login)
+	result, err := a.store.CheckPassword(c, &login)
 	if err != nil {
 		if err == ErrUserNotFound {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
@@ -55,7 +55,7 @@ func (a *userAPI) Login(c *gin.Context) {
 		return
 	}
 
-	if !valid {
+	if !result.Valid {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 			"id":      "invalidPassword",
 			"message": "Invalid password for the email",
@@ -63,5 +63,12 @@ func (a *userAPI) Login(c *gin.Context) {
 		return
 	}
 
-	c.AbortWithStatusJSON(http.StatusOK, "ok")
+	user, err := a.store.Get(c, result.UserID)
+	if err != nil {
+		log.Println("get user", err)
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+
+	c.AbortWithStatusJSON(http.StatusOK, user)
 }
