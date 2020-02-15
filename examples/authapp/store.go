@@ -28,13 +28,14 @@ type User struct {
 	DType    []string   `json:"dgraph.type,omitempty"`
 }
 
-type checkPassword struct {
-	Valid bool `json:"valid"`
+type CheckPassword struct {
+	UserID string `json:"uid"`
+	Valid  bool   `json:"valid"`
 }
 
 type UserStore interface {
 	Create(context.Context, *User) error
-	CheckPassword(context.Context, *Login) (bool, error)
+	CheckPassword(context.Context, *Login) (*CheckPassword, error)
 	Get(ctx context.Context, uid string) (*User, error)
 }
 
@@ -55,27 +56,30 @@ func (s *userStore) Create(ctx context.Context, user *User) error {
 	return nil
 }
 
-func (s *userStore) CheckPassword(ctx context.Context, login *Login) (bool, error) {
-	result := &checkPassword{}
+func (s *userStore) CheckPassword(ctx context.Context, login *Login) (*CheckPassword, error) {
+	result := &CheckPassword{}
 
 	tx := dgman.NewReadOnlyTxnContext(ctx, s.c)
 	err := tx.Get(&User{}).
 		Filter("eq(email, $1)", login.Email).
-		Query(`{ valid: checkpwd(password, $1) }`, login.Password).
+		Query(`{ 
+			uid
+			valid: checkpwd(password, $1) 
+		}`, login.Password).
 		Node(result)
 	if err != nil {
 		if err == dgman.ErrNodeNotFound {
-			return false, ErrUserNotFound
+			return nil, ErrUserNotFound
 		}
 	}
 
-	return result.Valid, nil
+	return result, nil
 }
 
 func (s *userStore) Get(ctx context.Context, uid string) (*User, error) {
 	user := &User{}
 	err := dgman.NewReadOnlyTxnContext(ctx, s.c).
-		Get(&User{}).
+		Get(user).
 		UID(uid).
 		Node()
 	if err != nil {
