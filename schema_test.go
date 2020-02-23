@@ -35,6 +35,7 @@ type User struct {
 	Name       string       `json:"name,omitempty" dgraph:"index=term"`
 	Username   string       `json:"username,omitempty" dgraph:"index=hash unique"`
 	Email      string       `json:"email,omitempty" dgraph:"index=hash unique"`
+	Noconflict string       `json:"noconflict,omitempty" dgraph:"index=hash noconflict"`
 	Password   string       `json:"password,omitempty"`
 	Height     *int         `json:"height,omitempty"`
 	IsAdmin    bool         `json:"is_admin,omitempty"`
@@ -82,28 +83,10 @@ func TestMarshalSchema(t *testing.T) {
 	typeSchema := NewTypeSchema()
 	typeSchema.Marshal(true, &User{})
 	types, schema := typeSchema.Types, typeSchema.Schema
-	assert.Len(t, schema, 19)
-	assert.Contains(t, schema, "username")
-	assert.Contains(t, schema, "email")
-	assert.Contains(t, schema, "password")
-	assert.Contains(t, schema, "name")
-	assert.Contains(t, schema, "height")
-	assert.Contains(t, schema, "mobiles")
-	assert.Contains(t, schema, "status")
-	assert.Contains(t, schema, "dob")
-	assert.Contains(t, schema, "is_admin")
-	assert.Contains(t, schema, "created")
-	assert.Contains(t, schema, "dates")
-	assert.Contains(t, schema, "dates_ptr")
-	assert.Contains(t, schema, "location")
-	assert.Contains(t, schema, "schools")
-	assert.Contains(t, schema, "schools_ptr")
-	assert.Contains(t, schema, "school")
-	assert.Contains(t, schema, "school_ptr")
-	assert.Contains(t, schema, "field_1")
-	assert.Contains(t, schema, "field_2")
+	assert.Len(t, schema, 20)
 	assert.Equal(t, "username: string @index(hash) @upsert .", schema["username"].String())
 	assert.Equal(t, "email: string @index(hash) @upsert .", schema["email"].String())
+	assert.Equal(t, "noconflict: string @index(hash) @noconflict .", schema["noconflict"].String())
 	assert.Equal(t, "password: string .", schema["password"].String())
 	assert.Equal(t, "name: string @index(term) .", schema["name"].String())
 	assert.Equal(t, "mobiles: [string] .", schema["mobiles"].String())
@@ -125,7 +108,7 @@ func TestMarshalSchema(t *testing.T) {
 	assert.Len(t, types, 2)
 	assert.Contains(t, types, "User")
 	assert.Contains(t, types, "School")
-	assert.Len(t, types["User"], 16)
+	assert.Len(t, types["User"], 17)
 	assert.Len(t, types["School"], 2)
 }
 
@@ -149,7 +132,7 @@ func TestCreateSchema(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	assert.Len(t, firstSchema.Schema, 19)
+	assert.Len(t, firstSchema.Schema, 20)
 	assert.Len(t, firstSchema.Types, 2)
 
 	secondSchema, err := CreateSchema(c, &NewUser{})
@@ -176,7 +159,7 @@ func TestMutateSchema(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	assert.Len(t, firstSchema.Schema, 19)
+	assert.Len(t, firstSchema.Schema, 20)
 	assert.Len(t, firstSchema.Types, 2)
 
 	secondSchema, err := MutateSchema(c, &NewUser{})
@@ -213,6 +196,7 @@ func TestOneToOneSchema(t *testing.T) {
 
 func Test_fetchExistingTypes(t *testing.T) {
 	c := newDgraphClient()
+	defer dropAll(c)
 
 	schema, err := CreateSchema(c, &User{})
 	if err != nil {
