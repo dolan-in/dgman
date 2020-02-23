@@ -41,19 +41,21 @@ type rawSchema struct {
 	List       bool
 	Upsert     bool
 	Type       string
+	Noconflict bool
 	Unique     bool
 }
 
 type Schema struct {
-	Predicate string
-	Type      string
-	Index     bool
-	Tokenizer []string
-	Reverse   bool
-	Count     bool
-	List      bool
-	Upsert    bool
-	Unique    bool
+	Predicate  string
+	Type       string
+	Index      bool
+	Tokenizer  []string
+	Reverse    bool
+	Count      bool
+	List       bool
+	Upsert     bool
+	Noconflict bool
+	Unique     bool
 }
 
 func (s Schema) String() string {
@@ -69,6 +71,9 @@ func (s Schema) String() string {
 	}
 	if s.Reverse {
 		schema += "@reverse "
+	}
+	if s.Noconflict {
+		schema += "@noconflict "
 	}
 	return schema + "."
 }
@@ -239,6 +244,7 @@ func parseDgraphTag(field *reflect.StructField) (*Schema, error) {
 		schema.Count = dgraphProps.Count
 		schema.Reverse = dgraphProps.Reverse
 		schema.Unique = dgraphProps.Unique
+		schema.Noconflict = dgraphProps.Noconflict
 
 		if dgraphProps.Predicate != "" {
 			schema.Predicate = dgraphProps.Predicate
@@ -296,6 +302,7 @@ func fetchExistingSchema(c *dgo.Dgraph) ([]*Schema, error) {
 			count
 			upsert
 			lang
+			noconflict
 		}
 	`
 
