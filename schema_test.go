@@ -25,6 +25,12 @@ import (
 
 type EnumType int
 
+type CustomTime time.Time
+
+func (c CustomTime) SchemaType() string {
+	return "datetime"
+}
+
 type GeoLoc struct {
 	Type  string    `json:"type"`
 	Coord []float64 `json:"coordinates"`
@@ -39,6 +45,7 @@ type User struct {
 	Password   string       `json:"password,omitempty"`
 	Height     *int         `json:"height,omitempty"`
 	IsAdmin    bool         `json:"is_admin,omitempty"`
+	CustomTime CustomTime   `json:"custom_time,omitempty"`
 	Dob        *time.Time   `json:"dob,omitempty"`
 	Status     EnumType     `json:"status,omitempty" dgraph:"type=int"`
 	Created    *time.Time   `json:"created,omitempty"`
@@ -83,7 +90,7 @@ func TestMarshalSchema(t *testing.T) {
 	typeSchema := NewTypeSchema()
 	typeSchema.Marshal(true, &User{})
 	types, schema := typeSchema.Types, typeSchema.Schema
-	assert.Len(t, schema, 20)
+	assert.Len(t, schema, 21)
 	assert.Equal(t, "username: string @index(hash) @upsert .", schema["username"].String())
 	assert.Equal(t, "email: string @index(hash) @upsert .", schema["email"].String())
 	assert.Equal(t, "noconflict: string @index(hash) @noconflict .", schema["noconflict"].String())
@@ -96,6 +103,7 @@ func TestMarshalSchema(t *testing.T) {
 	assert.Equal(t, "school_ptr: uid @count @reverse .", schema["school_ptr"].String())
 	assert.Equal(t, "status: int .", schema["status"].String())
 	assert.Equal(t, "height: int .", schema["height"].String())
+	assert.Equal(t, "custom_time: datetime .", schema["custom_time"].String())
 	assert.Equal(t, "dob: datetime .", schema["dob"].String())
 	assert.Equal(t, "is_admin: bool .", schema["is_admin"].String())
 	assert.Equal(t, "created: datetime .", schema["created"].String())
@@ -108,7 +116,7 @@ func TestMarshalSchema(t *testing.T) {
 	assert.Len(t, types, 2)
 	assert.Contains(t, types, "User")
 	assert.Contains(t, types, "School")
-	assert.Len(t, types["User"], 17)
+	assert.Len(t, types["User"], 18)
 	assert.Len(t, types["School"], 2)
 }
 
@@ -132,7 +140,7 @@ func TestCreateSchema(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	assert.Len(t, firstSchema.Schema, 20)
+	assert.Len(t, firstSchema.Schema, 21)
 	assert.Len(t, firstSchema.Types, 2)
 
 	secondSchema, err := CreateSchema(c, &NewUser{})
@@ -159,7 +167,7 @@ func TestMutateSchema(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	assert.Len(t, firstSchema.Schema, 20)
+	assert.Len(t, firstSchema.Schema, 21)
 	assert.Len(t, firstSchema.Types, 2)
 
 	secondSchema, err := MutateSchema(c, &NewUser{})
