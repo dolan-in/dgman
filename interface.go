@@ -23,6 +23,11 @@ type TxnInterface interface {
 	Get(model interface{}) *Query
 }
 
+// SchemaType allows defining a custom type as a dgraph schema type
+type SchemaType interface {
+	SchemaType() string
+}
+
 var (
 	_ TxnInterface = (*TxnContext)(nil)
 )

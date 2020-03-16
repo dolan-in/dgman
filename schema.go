@@ -193,29 +193,34 @@ func getSchemaType(fieldType reflect.Type) string {
 	if fieldType.Kind() == reflect.Ptr {
 		fieldType = fieldType.Elem()
 	}
-	schemaType := fieldType.Name()
+
+	// check if implements SchemaType
+	schemaTypeElem := reflect.New(fieldType).Interface()
+	if schemaTyper, ok := schemaTypeElem.(SchemaType); ok {
+		return schemaTyper.SchemaType()
+	}
 
 	switch fieldType.Kind() {
 	case reflect.Slice:
 		sliceType := fieldType.Elem()
-		schemaType = fmt.Sprintf("[%s]", getSchemaType(sliceType))
+		return fmt.Sprintf("[%s]", getSchemaType(sliceType))
 	case reflect.Struct:
 		switch fieldType.PkgPath() {
 		case "time":
 			// golang std time
-			schemaType = "datetime"
+			return "datetime"
 		default:
 			// one-to-one relation
-			schemaType = "uid"
+			return "uid"
 		}
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		schemaType = "int"
+		return "int"
 	case reflect.Float32, reflect.Float64:
-		schemaType = "float"
+		return "float"
 	}
 
-	return schemaType
+	return fieldType.Name()
 }
 
 func getPredicate(field *reflect.StructField) string {
