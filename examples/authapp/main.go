@@ -3,8 +3,8 @@ package main
 import (
 	"log"
 
-	"github.com/dgraph-io/dgo/v2"
-	"github.com/dgraph-io/dgo/v2/protos/api"
+	"github.com/dgraph-io/dgo/v200"
+	"github.com/dgraph-io/dgo/v200/protos/api"
 	"github.com/dolan-in/dgman"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"

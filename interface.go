@@ -3,7 +3,7 @@ package dgman
 import (
 	"context"
 
-	"github.com/dgraph-io/dgo/v2"
+	"github.com/dgraph-io/dgo/v200"
 )
 
 // TxnInterface provides interface for dgman.TxnContext

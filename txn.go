@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dgraph-io/dgo/v2"
+	"github.com/dgraph-io/dgo/v200"
 )
 
 // TxnContext is dgo transaction coupled with context
