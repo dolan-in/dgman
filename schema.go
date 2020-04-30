@@ -59,7 +59,11 @@ type Schema struct {
 }
 
 func (s Schema) String() string {
-	schema := fmt.Sprintf("%s: %s ", s.Predicate, s.Type)
+	t := s.Type
+	if s.List {
+		t = fmt.Sprintf("[%s]", t)
+	}
+	schema := fmt.Sprintf("%s: %s ", s.Predicate, t)
 	if s.Index {
 		schema += fmt.Sprintf("@index(%s) ", strings.Join(s.Tokenizer, ","))
 	}
