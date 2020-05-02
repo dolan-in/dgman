@@ -128,6 +128,9 @@ func (t *TypeSchema) Marshal(parseType bool, models ...interface{}) {
 		}
 
 		nodeType := GetNodeType(model)
+		if _, ok := t.Types[nodeType]; ok {
+			return
+		}
 		if parseType {
 			t.Types[nodeType] = make(SchemaMap)
 		}
