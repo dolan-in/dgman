@@ -157,7 +157,8 @@ func (t *TypeSchema) Marshal(parseType bool, models ...interface{}) {
 			parse := s.Predicate != "" &&
 				s.Predicate != "uid" && // don't parse uid
 				s.Predicate != dgraphTypePredicate && // don't parse dgraph.type
-				!strings.Contains(s.Predicate, "|") // don't parse facet
+				!strings.Contains(s.Predicate, "|") && // don't parse facet
+				s.Predicate[0] != '~' // don't parse reverse edge
 			if parse {
 				// one-to-one and many-to-many edge
 				if s.Type == "uid" || s.Type == "[uid]" {
