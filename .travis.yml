@@ -2,6 +2,8 @@ sudo: false
 language: go
 git:
   depth: 50
+env:
+- DGMAN_TEST_DATABASE=localhost:9080
 install:
 - curl https://get.dgraph.io -sSf | bash /dev/stdin "-y"
 - go get golang.org/x/tools/cmd/cover
