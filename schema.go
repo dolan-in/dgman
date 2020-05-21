@@ -54,7 +54,7 @@ type Schema struct {
 	Count      bool
 	List       bool
 	Upsert     bool
-	Noconflict bool
+	Noconflict bool `json:"no_conflict"`
 	Unique     bool
 }
 
@@ -128,6 +128,11 @@ func (t *TypeSchema) Marshal(parseType bool, models ...interface{}) {
 		current, err := reflectType(model)
 		if err != nil {
 			log.Println(err)
+			continue
+		}
+
+		if current.Kind() == reflect.Interface {
+			// don't parse raw interfaces or it will panic
 			continue
 		}
 
@@ -209,6 +214,8 @@ func getSchemaType(fieldType reflect.Type) string {
 	}
 
 	switch fieldType.Kind() {
+	case reflect.Interface:
+		return "uid"
 	case reflect.Slice:
 		sliceType := fieldType.Elem()
 		return fmt.Sprintf("[%s]", getSchemaType(sliceType))

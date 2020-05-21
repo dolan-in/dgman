@@ -56,6 +56,8 @@ type User struct {
 	SchoolsPtr []*School    `json:"schools_ptr,omitempty" dgraph:"count reverse"`
 	School     School       `json:"school" dgraph:"count reverse"`
 	SchoolPtr  *School      `json:"school_ptr" dgraph:"count reverse"`
+	Friends    []User       `json:"friends"`             // test recursive, will panic if fail
+	Object     interface{}  `json:"object" dgraph:"uid"` // test interface, will panic if fail
 	*Anonymous
 	DType []string `json:"dgraph.type"`
 }
@@ -90,7 +92,6 @@ func TestMarshalSchema(t *testing.T) {
 	typeSchema := NewTypeSchema()
 	typeSchema.Marshal(true, &User{})
 	types, schema := typeSchema.Types, typeSchema.Schema
-	assert.Len(t, schema, 21)
 	assert.Equal(t, "username: string @index(hash) @upsert .", schema["username"].String())
 	assert.Equal(t, "email: string @index(hash) @upsert .", schema["email"].String())
 	assert.Equal(t, "noconflict: string @index(hash) @noconflict .", schema["noconflict"].String())
@@ -112,12 +113,11 @@ func TestMarshalSchema(t *testing.T) {
 	assert.Equal(t, "location: geo .", schema["location"].String())
 	assert.Equal(t, "field_1: string .", schema["field_1"].String())
 	assert.Equal(t, "field_2: string .", schema["field_2"].String())
+	assert.Equal(t, "friends: [uid] .", schema["friends"].String())
+	assert.Equal(t, "object: uid .", schema["object"].String())
 
-	assert.Len(t, types, 2)
 	assert.Contains(t, types, "User")
 	assert.Contains(t, types, "School")
-	assert.Len(t, types["User"], 18)
-	assert.Len(t, types["School"], 2)
 }
 
 func TestGetNodeType(t *testing.T) {
@@ -140,7 +140,7 @@ func TestCreateSchema(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	assert.Len(t, firstSchema.Schema, 21)
+	assert.Len(t, firstSchema.Schema, 23)
 	assert.Len(t, firstSchema.Types, 2)
 
 	secondSchema, err := CreateSchema(c, &NewUser{})
@@ -167,7 +167,7 @@ func TestMutateSchema(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	assert.Len(t, firstSchema.Schema, 21)
+	assert.Len(t, firstSchema.Schema, 23)
 	assert.Len(t, firstSchema.Types, 2)
 
 	secondSchema, err := MutateSchema(c, &NewUser{})
@@ -200,6 +200,27 @@ func TestOneToOneSchema(t *testing.T) {
 		t.Error(err)
 	}
 	assert.Len(t, schema.Schema, 3)
+}
+
+func Test_fetchExistingSchema(t *testing.T) {
+	c := newDgraphClient()
+	defer dropAll(c)
+
+	schema, err := CreateSchema(c, &User{})
+	if err != nil {
+		t.Error(err)
+	}
+
+	existing, err := fetchExistingSchema(c)
+	if err != nil {
+		t.Error(err)
+	}
+
+	for _, existingSchema := range existing {
+		if s, ok := schema.Schema[existingSchema.Predicate]; ok {
+			assert.Equal(t, s.String(), existingSchema.String())
+		}
+	}
 }
 
 func Test_fetchExistingTypes(t *testing.T) {

@@ -18,6 +18,7 @@ package dgman
 
 import (
 	"context"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -38,7 +39,7 @@ func toSnakeCase(str string) string {
 }
 
 func newDgraphClient() *dgo.Dgraph {
-	d, err := grpc.Dial("localhost:9080", grpc.WithInsecure())
+	d, err := grpc.Dial(os.Getenv("DGMAN_TEST_DATABASE"), grpc.WithInsecure())
 	if err != nil {
 		panic(err)
 	}

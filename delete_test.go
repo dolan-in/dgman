@@ -1,7 +1,6 @@
 package dgman
 
 import (
-	"log"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -139,7 +138,6 @@ func TestDeleteQuery(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Error(err)
 	}
-	log.Println(users[0])
 
 	nodes, err := NewTxn(c).Delete(&User{}, true).
 		Query(`@filter(allofterms(name, "wildan")) {
@@ -202,7 +200,6 @@ func TestDeleteQueryNode(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Error(err)
 	}
-	log.Println(users[0])
 
 	nodes, err := NewTxn(c).Delete(&User{}, true).
 		Query(`@filter(eq(email, "wildan2711@gmail.com")) {
