@@ -18,7 +18,6 @@ package dgman
 
 import (
 	"fmt"
-	"log"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -67,7 +66,6 @@ func TestGetByUID(t *testing.T) {
 	if err := tx.Get(dst).UID(source.UID).Node(); err != nil {
 		t.Error(err)
 	}
-	log.Println(dst)
 
 	assert.Equal(t, source.Name, dst.Name)
 	assert.Equal(t, source.Address, dst.Address)
@@ -178,7 +176,6 @@ func TestGetByQuery(t *testing.T) {
 		t.Error(err)
 	}
 	tx.Commit()
-	log.Println(source)
 
 	source2 := TestEdge{
 		Level: "one",
@@ -199,14 +196,12 @@ func TestGetByQuery(t *testing.T) {
 		t.Error(err)
 	}
 	tx.Commit()
-	log.Println(source)
 
 	var dst TestModel
 	tx = NewTxn(c)
 	q := tx.Get(&dst).
 		Filter(`allofterms(name, "wildan")`).
 		All(2)
-	log.Println(q)
 	if err := q.Node(); err != nil {
 		t.Error(err)
 	}
@@ -263,7 +258,6 @@ func TestGetAllWithDepth(t *testing.T) {
 	q := tx.Get(&dst).
 		Filter(`allofterms(name, "wildan")`).
 		All(1)
-	log.Println(q)
 	if err := q.Node(); err != nil {
 		t.Error(err)
 	}
@@ -301,7 +295,6 @@ func TestPagination(t *testing.T) {
 		Vars("getWithNames($name: string)", map[string]string{"$name": "wildan"}).
 		Filter("allofterms(name, $name)").
 		First(10)
-	log.Println(query)
 	if err = query.Nodes(); err != nil {
 		t.Error(err)
 	}
@@ -359,7 +352,6 @@ func TestOrder(t *testing.T) {
 		Vars("getWithNames($name: string)", map[string]string{"$name": "wildan"}).
 		Filter("allofterms(name, $name)").
 		OrderAsc("age")
-	log.Println(query)
 	if err = query.Nodes(); err != nil {
 		t.Error(err)
 	}
@@ -367,7 +359,6 @@ func TestOrder(t *testing.T) {
 	assert.Len(t, result, 20)
 
 	for i, r := range result {
-		log.Println(*r)
 		models[i].DType = nil
 		assert.Equal(t, models[i], r)
 	}
@@ -378,7 +369,6 @@ func TestOrder(t *testing.T) {
 		Filter("allofterms(name, $name)").
 		OrderAsc("name").
 		OrderDesc("age")
-	log.Println(query)
 	if err = query.Nodes(); err != nil {
 		t.Error(err)
 	}
@@ -386,7 +376,6 @@ func TestOrder(t *testing.T) {
 	assert.Len(t, result, 20)
 
 	for i, r := range result {
-		log.Println(*r)
 		if i < len(result)-1 {
 			next := result[i+1]
 			if r.Name == next.Name {

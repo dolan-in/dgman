@@ -612,3 +612,13 @@ tx := dgman.NewTxn(c)
 err := tx.Delete(&User{}, true).
 	Edge("0x12", "schools")
 ```
+
+## Development
+
+Make sure you have a running `dgraph` node, and set the `DGMAN_TEST_DATABASE` environment variable to the connection string of your `dgraph alpha` grpc connection, e.g: `localhost:9080`.
+
+Run the tests:
+
+```
+go test -v .
+```
