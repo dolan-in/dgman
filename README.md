@@ -29,20 +29,21 @@
   - [Mutate Helpers](#mutate-helpers)
     - [Mutate](#mutate)
     - [Create (Mutate with Unique Checking)](#create-mutate-with-unique-checking)
+    - [Update (Mutate Existing Node with unique checking)](#update-mutate-existing-node-with-unique-checking)
     - [Upsert](#upsert)
     - [Create Or Get](#create-or-get)
-    - [Update On Conflict](#update-on-conflict)
   - [Query Helpers](#query-helpers)
     - [Get by Filter](#get-by-filter)
     - [Get by Query](#get-by-query)
     - [Get by UID](#get-by-uid)
   - [Delete Helper](#delete-helper)
+ - [Development](#development)
 
 ## Installation
 
 Using go get:
 
-`go get github.com/dolan-in/dgman`
+`go get -u github.com/dolan-in/dgman`
 
 ## Usage 
 
@@ -312,66 +313,6 @@ type User struct {
 
 ```
 
-#### Update (Mutate existing node with Unique Checking)
-
-This is similar to `Create`, but for existing nodes. So the `uid` field must be specified.
-
-```go
-type User struct {
-	UID 			string 		`json:"uid,omitempty"`
-	Name 			string 		`json:"name,omitempty"`
-	Email 			string 		`json:"email,omitempty" dgraph:"index=hash unique"`
-	Username 		string 		`json:"username,omitempty" dgraph:"index=term unique"`
-	Dob				time.Time	`json:"dob" dgraph:"index=day"`
-}
-
-...
-	users := []*User{
-		User{
-			Name: "Alexander",
-			Email: "alexander@gmail.com",
-			Username: "alex123",
-		},
-		User{
-			Name: "Fergusso",
-			Email: "fergusso@gmail.com",
-			Username: "fergusso123",
-		},
-	}
-
-	tx := dgman.NewTxn(c)
-	if err := tx.Create(&users, true); err != nil {
-		panic(err)
-	}
-	
-	// try to update the user with existing username
-	alexander := users[0]
-	alexander.Username = "fergusso123"
-	// UID should have a value
-	fmt.Println(alexander.UID)
-
-	// will return a dgman.UniqueError
-	tx = dgman.NewTxn(c)
-	if err := tx.Update(&alexander, true); err != nil {
-		if uniqueErr, ok := err.(*dgman.UniqueError); ok {
-			// will return duplicate error for username
-			fmt.Println(uniqueErr.Field, uniqueErr.Value)
-		}
-	}
-
-	// try to update the user with non-existing username
-	alexander.Username = "wildan"
-
-	tx := dgman.NewTxn(c)
-	if err := tx.Update(&alexander, true); err != nil {
-		panic(err)
-	}
-
-	// should be updated
-	fmt.Println(alexander)
-
-```
-
 #### Upsert
 
 `Upsert` updates a node if a node with a value of a specified predicate already exists, otherwise insert the node.
@@ -615,7 +556,7 @@ err := tx.Delete(&User{}, true).
 
 ## Development
 
-Make sure you have a running `dgraph` node, and set the `DGMAN_TEST_DATABASE` environment variable to the connection string of your `dgraph alpha` grpc connection, e.g: `localhost:9080`.
+Make sure you have a running `dgraph` cluster, and set the `DGMAN_TEST_DATABASE` environment variable to the connection string of your `dgraph alpha` grpc connection, e.g: `localhost:9080`.
 
 Run the tests:
 
