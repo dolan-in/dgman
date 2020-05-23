@@ -82,12 +82,14 @@ func (q *Query) UID(uid string) *Query {
 func expandPredicate(depth int) string {
 	var buffer strings.Builder
 
-	buffer.WriteString("{\n\t\tuid\n\t\texpand(_all_)")
+	buffer.WriteString("{\n\t\tuid\n\t\tdgraph.type\n\t\texpand(_all_)")
 	for i := 0; i < depth; i++ {
 		tabs := strings.Repeat("\t", i+1)
 		buffer.WriteString(" {\n\t\t")
 		buffer.WriteString(tabs)
 		buffer.WriteString("uid\n\t\t")
+		buffer.WriteString(tabs)
+		buffer.WriteString("dgraph.type\n\t\t")
 		buffer.WriteString(tabs)
 		buffer.WriteString("expand(_all_)")
 	}
