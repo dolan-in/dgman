@@ -454,7 +454,6 @@ func TestUpsert(t *testing.T) {
 		t.Error(err)
 	}
 
-	testUpsert2.DType = nil
 	assert.Equal(t, testUpsert2, result)
 
 	// make sure unique checking still holds

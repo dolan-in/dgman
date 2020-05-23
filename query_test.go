@@ -359,7 +359,6 @@ func TestOrder(t *testing.T) {
 	assert.Len(t, result, 20)
 
 	for i, r := range result {
-		models[i].DType = nil
 		assert.Equal(t, models[i], r)
 	}
 
@@ -390,23 +389,29 @@ func TestOrder(t *testing.T) {
 func TestExpandPredicate(t *testing.T) {
 	expectedDepthZero := `{
 		uid
+		dgraph.type
 		expand(_all_)
 	}`
 
 	expectedDepthOne := `{
 		uid
+		dgraph.type
 		expand(_all_) {
 			uid
+			dgraph.type
 			expand(_all_)
 		}
 	}`
 
 	expectedDepthTwo := `{
 		uid
+		dgraph.type
 		expand(_all_) {
 			uid
+			dgraph.type
 			expand(_all_) {
 				uid
+				dgraph.type
 				expand(_all_)
 			}
 		}
