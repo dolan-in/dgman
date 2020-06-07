@@ -451,10 +451,6 @@ func isNull(x interface{}) bool {
 	return x == nil || reflect.DeepEqual(x, reflect.Zero(reflect.TypeOf(x)).Interface())
 }
 
-func isTime(refType reflect.Type) bool {
-	return refType.PkgPath() == "time"
-}
-
 func injectTypeInValue(refVal *reflect.Value) error {
 	refType := refVal.Type()
 	for i := refVal.NumField() - 1; i >= 0; i-- {
@@ -481,7 +477,7 @@ func injectTypeInValue(refVal *reflect.Value) error {
 		switch field.Type.Kind() {
 		case reflect.Ptr:
 			elemType := field.Type.Elem()
-			if elemType.Kind() != reflect.Struct || isTime(elemType) {
+			if elemType.Kind() != reflect.Struct {
 				continue
 			}
 		case reflect.Slice:
@@ -489,14 +485,11 @@ func injectTypeInValue(refVal *reflect.Value) error {
 			if elemType.Kind() == reflect.Ptr {
 				elemType = elemType.Elem()
 			}
-			if elemType.Kind() != reflect.Struct || isTime(elemType) {
+			if elemType.Kind() != reflect.Struct {
 				continue
 			}
 			fieldVal = fieldVal.Addr()
 		case reflect.Struct:
-			if isTime(field.Type) {
-				continue
-			}
 			fieldVal = fieldVal.Addr()
 		default:
 			continue
