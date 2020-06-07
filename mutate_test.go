@@ -100,10 +100,10 @@ func Test_marshalAndInjectType(t *testing.T) {
 				Edge:    TestDTypeSliceInner{Name: "wildanjing"},
 				PtrEdge: &TestDTypeSliceInner{Name: "wildanjing2"},
 				SliceEdge: []TestDTypeSliceInner{
-					TestDTypeSliceInner{Name: "wildanjing3"},
+					{Name: "wildanjing3"},
 				},
 				SlicePtrEdge: []*TestDTypeSliceInner{
-					&TestDTypeSliceInner{Name: "wildanjing4"},
+					{Name: "wildanjing4"},
 				},
 			}},
 			want:    []byte(`{"name":"wildan","edge":{"name":"wildanjing","dgraph.type":["TestDTypeSliceInner"]},"ptr_edge":{"name":"wildanjing2","dgraph.type":["TestDTypeSliceInner"]},"slice_edge":[{"name":"wildanjing3","dgraph.type":["TestDTypeSliceInner"]}],"slice_ptr_edge":[{"name":"wildanjing4","dgraph.type":["TestDTypeSliceInner"]}],"dgraph.type":["TestDTypeSlice"]}`),
@@ -112,12 +112,12 @@ func Test_marshalAndInjectType(t *testing.T) {
 		{
 			name: "should inject slice of string in dgraph.type for slice",
 			args: args{&[]TestDTypeSlice{
-				TestDTypeSlice{
+				{
 					Name:    "wildan",
 					Edge:    TestDTypeSliceInner{Name: "wildanjing"},
 					PtrEdge: &TestDTypeSliceInner{Name: "wildanjing2"},
 				},
-				TestDTypeSlice{
+				{
 					Name:    "wildan",
 					Edge:    TestDTypeSliceInner{Name: "wildanjing"},
 					PtrEdge: &TestDTypeSliceInner{Name: "wildanjing2"},
@@ -235,19 +235,19 @@ func TestAddCustomNode(t *testing.T) {
 
 func TestCreate(t *testing.T) {
 	testUnique := []TestUnique{
-		TestUnique{
+		{
 			Name:     "H3h3",
 			Username: "wildan",
 			Email:    "wildan2711@gmail.com",
 			No:       1,
 		},
-		TestUnique{
+		{
 			Name:     "PooDiePie",
 			Username: "wildansyah",
 			Email:    "wildansyah2711@gmail.com",
 			No:       2,
 		},
-		TestUnique{
+		{
 			Name:     "Poopsie",
 			Username: "wildani",
 			Email:    "wildani@gmail.com",
@@ -278,19 +278,19 @@ func TestCreate(t *testing.T) {
 	}
 
 	testDuplicate := []TestUnique{
-		TestUnique{
+		{
 			Name:     "H3h3",
 			Username: "wildanjing",
 			Email:    "wildan2711@gmail.com",
 			No:       4,
 		},
-		TestUnique{
+		{
 			Name:     "PooDiePie",
 			Username: "wildansyah",
 			Email:    "wildanodol2711@gmail.com",
 			No:       5,
 		},
-		TestUnique{
+		{
 			Name:     "lalap",
 			Username: "lalap",
 			Email:    "lalap@gmail.com",
@@ -369,13 +369,13 @@ func TestUpdate(t *testing.T) {
 	defer dropAll(c)
 
 	testUniques := []TestUnique{
-		TestUnique{
+		{
 			Name:     "haha",
 			Username: "",
 			Email:    "wildan2711@gmail.com",
 			No:       1,
 		},
-		TestUnique{
+		{
 			Name:     "haha 2",
 			Username: "wildancok2711",
 			Email:    "wildancok2711@gmail.com",
@@ -497,13 +497,13 @@ func TestCreateOrGet(t *testing.T) {
 	defer dropAll(c)
 
 	testUniques := []TestUnique{
-		TestUnique{
+		{
 			Name:     "haha",
 			Username: "wilcok",
 			Email:    "wildan2711@gmail.com",
 			No:       1,
 		},
-		TestUnique{
+		{
 			Name:     "haha 2",
 			Username: "wildancok2711",
 			Email:    "wildancok2711@gmail.com",

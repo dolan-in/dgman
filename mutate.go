@@ -83,13 +83,13 @@ func newMutateType(model interface{}) (*mutateType, error) {
 	mType := &mutateType{}
 	mType.schema = make(map[int]*Schema)
 	mType.predIndex = make(map[string]int)
-	mType.nodeType = GetNodeType(model)
 
 	vType, err := reflectType(model)
 	if err != nil {
 		return nil, err
 	}
 
+	mType.nodeType = getNodeType(vType)
 	mType.vType = vType
 
 	mType.value, err = reflectValue(model)
@@ -461,9 +461,14 @@ func injectTypeInValue(refVal *reflect.Value) error {
 		field := refType.Field(i)
 		fieldVal := refVal.Field(i)
 
+		if !fieldVal.CanSet() {
+			// don't access unexported fields
+			continue
+		}
+
 		predicate := getPredicate(&field)
 		if predicate == dgraphTypePredicate {
-			nodeType := GetNodeType(refVal.Interface())
+			nodeType := getNodeType(refType)
 			switch field.Type.Kind() {
 			case reflect.String:
 				fieldVal.SetString(nodeType)

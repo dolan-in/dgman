@@ -113,17 +113,17 @@ func TestGetByFilter(t *testing.T) {
 
 func TestFind(t *testing.T) {
 	source := []TestModel{
-		TestModel{
+		{
 			Name:    "wildan anjing",
 			Address: "Beverly Hills",
 			Age:     17,
 		},
-		TestModel{
+		{
 			Name:    "moh wildan",
 			Address: "Beverly Hills",
 			Age:     17,
 		},
-		TestModel{
+		{
 			Name:    "wildancok",
 			Address: "Beverly Hills",
 			Age:     17,

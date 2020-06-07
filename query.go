@@ -59,6 +59,7 @@ type Query struct {
 	uid         string
 	filter      string
 	query       string
+	blocks      []*Query
 }
 
 // Query defines the query portion other than the root function
@@ -280,39 +281,37 @@ func (q *Query) executeQuery() (result []byte, err error) {
 // returns error if no nodes are found,
 // query root must be data(func ...)
 func Node(jsonData []byte, model interface{}) error {
+	dataLen := len(jsonData)
 	// JSON data must be in format {"data":[{ ... }]}
 	// get only inner object
-	dataPrefix := `{"data":[`
-	strippedPrefix := strings.TrimPrefix(string(jsonData), dataPrefix)
-
-	if len(strippedPrefix) == len(jsonData)-len(dataPrefix) {
-		dataBytes := []byte(strippedPrefix)
-		// remove the ending array closer ']'
-		dataBytes = dataBytes[:len(dataBytes)-2]
-
-		if len(dataBytes) == 0 {
-			return ErrNodeNotFound
-		}
-
-		return json.Unmarshal(dataBytes, model)
+	dataPrefixLen := len(`{"data":[`)
+	if dataLen < dataPrefixLen {
+		return fmt.Errorf("invalid json result for node: %s", jsonData)
 	}
 
-	return fmt.Errorf("invalid json result for node: %s", jsonData)
+	// remove prefix and the ending array closer ']'
+	dataBytes := jsonData[dataPrefixLen : dataLen-2]
+
+	if len(dataBytes) == 0 {
+		return ErrNodeNotFound
+	}
+
+	return json.Unmarshal(dataBytes, model)
 }
 
 // Nodes marshals multiple nodes to a slice of model,
 // query root must be data(func ...)
 func Nodes(jsonData []byte, model interface{}) error {
+	dataLen := len(jsonData)
 	// JSON data must start with {"data":
-	dataPrefix := `{"data":`
-	strippedPrefix := strings.TrimPrefix(string(jsonData), dataPrefix)
-
-	if len(strippedPrefix) == len(jsonData)-len(dataPrefix) {
-		dataBytes := []byte(strippedPrefix)
-		return json.Unmarshal(dataBytes[:len(dataBytes)-1], model)
+	dataPrefixLen := len(`{"data":`)
+	if dataLen < dataPrefixLen {
+		return fmt.Errorf("invalid json result for nodes: %s", jsonData)
 	}
 
-	return fmt.Errorf("invalid json result for nodes: %s", jsonData)
+	dataBytes := jsonData[dataPrefixLen : dataLen-1]
+
+	return json.Unmarshal(dataBytes, model)
 }
 
 func parseQueryWithParams(query string, params []interface{}) string {

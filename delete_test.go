@@ -45,17 +45,17 @@ func TestGenerateUidsJson(t *testing.T) {
 
 func TestDeleteFilter(t *testing.T) {
 	users := []*User{
-		&User{
+		{
 			Name:     "wildan",
 			Username: "wildan",
 			Email:    "wildan2711@gmail.com",
 		},
-		&User{
+		{
 			Name:     "wildan",
 			Username: "wildansyah",
 			Email:    "wildansyah2711@gmail.com",
 		},
-		&User{
+		{
 			Name:     "aha",
 			Username: "wildani",
 			Email:    "wildani@gmail.com",
@@ -111,18 +111,18 @@ func TestDeleteQuery(t *testing.T) {
 	}
 
 	users := []*User{
-		&User{
+		{
 			Name:     "wildan",
 			Username: "wildan",
 			Email:    "wildan2711@gmail.com",
 			Schools:  []School{school},
 		},
-		&User{
+		{
 			Name:     "wildan",
 			Username: "wildansyah",
 			Email:    "wildansyah2711@gmail.com",
 		},
-		&User{
+		{
 			Name:     "aha",
 			Username: "wildani",
 			Email:    "wildani@gmail.com",
@@ -169,22 +169,22 @@ func TestDeleteQueryNode(t *testing.T) {
 	defer dropAll(c)
 
 	users := []*User{
-		&User{
+		{
 			Name:     "wildan",
 			Username: "wildan",
 			Email:    "wildan2711@gmail.com",
 			Schools: []School{
-				School{
+				{
 					Name: "wildan's school",
 				},
 			},
 		},
-		&User{
+		{
 			Name:     "wildan",
 			Username: "wildansyah",
 			Email:    "wildansyah2711@gmail.com",
 		},
-		&User{
+		{
 			Name:     "aha",
 			Username: "wildani",
 			Email:    "wildani@gmail.com",
@@ -231,16 +231,16 @@ func TestDeleteEdge(t *testing.T) {
 	defer dropAll(c)
 
 	schools := []School{
-		School{
+		{
 			Name: "wildan's school",
 		},
-		School{
+		{
 			Name: "wildan's second school",
 		},
-		School{
+		{
 			Name: "wildan's third school",
 		},
-		School{
+		{
 			Name: "wildan's fourth school",
 		},
 	}
