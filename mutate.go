@@ -83,13 +83,13 @@ func newMutateType(model interface{}) (*mutateType, error) {
 	mType := &mutateType{}
 	mType.schema = make(map[int]*Schema)
 	mType.predIndex = make(map[string]int)
-	mType.nodeType = GetNodeType(model)
 
 	vType, err := reflectType(model)
 	if err != nil {
 		return nil, err
 	}
 
+	mType.nodeType = getNodeType(vType)
 	mType.vType = vType
 
 	mType.value, err = reflectValue(model)
@@ -451,15 +451,24 @@ func isNull(x interface{}) bool {
 	return x == nil || reflect.DeepEqual(x, reflect.Zero(reflect.TypeOf(x)).Interface())
 }
 
+func isTime(refType reflect.Type) bool {
+	return refType.PkgPath() == "time"
+}
+
 func injectTypeInValue(refVal *reflect.Value) error {
 	refType := refVal.Type()
 	for i := refVal.NumField() - 1; i >= 0; i-- {
 		field := refType.Field(i)
 		fieldVal := refVal.Field(i)
 
+		if !fieldVal.CanSet() {
+			// don't access unexported fields
+			continue
+		}
+
 		predicate := getPredicate(&field)
 		if predicate == dgraphTypePredicate {
-			nodeType := GetNodeType(refVal.Interface())
+			nodeType := getNodeType(refType)
 			switch field.Type.Kind() {
 			case reflect.String:
 				fieldVal.SetString(nodeType)
@@ -477,7 +486,7 @@ func injectTypeInValue(refVal *reflect.Value) error {
 		switch field.Type.Kind() {
 		case reflect.Ptr:
 			elemType := field.Type.Elem()
-			if elemType.Kind() != reflect.Struct {
+			if elemType.Kind() != reflect.Struct || isTime(elemType) {
 				continue
 			}
 		case reflect.Slice:
@@ -485,11 +494,14 @@ func injectTypeInValue(refVal *reflect.Value) error {
 			if elemType.Kind() == reflect.Ptr {
 				elemType = elemType.Elem()
 			}
-			if elemType.Kind() != reflect.Struct {
+			if elemType.Kind() != reflect.Struct || isTime(elemType) {
 				continue
 			}
 			fieldVal = fieldVal.Addr()
 		case reflect.Struct:
+			if isTime(field.Type) {
+				continue
+			}
 			fieldVal = fieldVal.Addr()
 		default:
 			continue

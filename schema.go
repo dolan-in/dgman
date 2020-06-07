@@ -439,12 +439,9 @@ func MutateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
 	return typeSchema, nil
 }
 
-// GetNodeType gets node type from the struct name, or "dgraph" tag
-// in the "dgraph.type" predicate/json tag
-func GetNodeType(data interface{}) string {
+func getNodeType(dataType reflect.Type) string {
 	// get node type from struct name
 	nodeType := ""
-	dataType := reflect.TypeOf(data)
 	for dataType.Kind() != reflect.Struct {
 		dataType = dataType.Elem()
 	}
@@ -464,4 +461,10 @@ func GetNodeType(data interface{}) string {
 		}
 	}
 	return nodeType
+}
+
+// GetNodeType gets node type from the struct name, or "dgraph" tag
+// in the "dgraph.type" predicate/json tag
+func GetNodeType(data interface{}) string {
+	return getNodeType(reflect.TypeOf(data))
 }
