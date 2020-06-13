@@ -270,7 +270,7 @@ func TestGetAllWithDepth(t *testing.T) {
 
 func TestPagination(t *testing.T) {
 	models := []TestModel{}
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 10; i++ {
 		models = append(models, TestModel{
 			Name:    fmt.Sprintf("wildan %d", i),
 			Address: "Beverly Hills",
@@ -294,18 +294,18 @@ func TestPagination(t *testing.T) {
 	query := NewReadOnlyTxn(c).Get(&result).
 		Vars("getWithNames($name: string)", map[string]string{"$name": "wildan"}).
 		Filter("allofterms(name, $name)").
-		First(10)
+		First(5)
 	if err = query.Nodes(); err != nil {
 		t.Error(err)
 	}
 
-	assert.Len(t, result, 10)
+	assert.Len(t, result, 5)
 
 	result = []TestModel{}
 	query = NewReadOnlyTxn(c).Get(&result).
 		Vars("getWithNames($name: string)", map[string]string{"$name": "nonon"}).
 		Filter("allofterms(name, $name)").
-		First(10)
+		First(5)
 	if err = query.Nodes(); err != nil {
 		t.Error(err)
 	}
@@ -321,12 +321,12 @@ func TestPagination(t *testing.T) {
 		t.Error(err)
 	}
 
-	assert.Len(t, result, 20)
+	assert.Len(t, result, 10)
 }
 
 func TestOrder(t *testing.T) {
 	models := []*TestModel{}
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 10; i++ {
 		models = append(models, &TestModel{
 			Name:    fmt.Sprintf("wildan %d", i%10),
 			Address: "Beverly Hills",
@@ -356,7 +356,7 @@ func TestOrder(t *testing.T) {
 		t.Error(err)
 	}
 
-	assert.Len(t, result, 20)
+	assert.Len(t, result, 10)
 
 	for i, r := range result {
 		assert.Equal(t, models[i], r)
@@ -372,7 +372,7 @@ func TestOrder(t *testing.T) {
 		t.Error(err)
 	}
 
-	assert.Len(t, result, 20)
+	assert.Len(t, result, 10)
 
 	for i, r := range result {
 		if i < len(result)-1 {
@@ -384,6 +384,55 @@ func TestOrder(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestQueryBlock(t *testing.T) {
+	c := newDgraphClient()
+	if _, err := CreateSchema(c, &TestModel{}); err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	models := []*TestModel{}
+	for i := 0; i < 10; i++ {
+		models = append(models, &TestModel{
+			Name:    fmt.Sprintf("wildan %d", i%10),
+			Address: "Beverly Hills",
+			Age:     i,
+		})
+	}
+
+	tx := NewTxn(c)
+	if err := tx.Create(&models, true); err != nil {
+		t.Error(err)
+		return
+	}
+
+	tx = NewReadOnlyTxn(c)
+
+	type pagedResults struct {
+		Paged    []*TestModel `json:"paged"`
+		PageInfo []struct {
+			Total int
+		}
+	}
+
+	result := &pagedResults{}
+
+	query := tx.
+		Query(
+			NewQuery().As("result").Var().Type(&TestModel{}).Filter(`anyofterms(name, $name)`),
+			NewQuery().Name("paged").UID("result").First(2).Offset(2).All(1),
+			NewQuery().Name("pageInfo").UID("result").Query(`{ total: count(uid) }`),
+		).
+		Vars("getByName($name: string)", map[string]string{"$name": "wildan"})
+
+	if err := query.Scan(result); err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, result.Paged, 2)
+	assert.Equal(t, result.PageInfo[0].Total, 10)
 }
 
 func TestExpandPredicate(t *testing.T) {

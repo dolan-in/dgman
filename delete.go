@@ -141,7 +141,7 @@ func (d *Deleter) Node() (uids []string, err error) {
 	}
 
 	model := make(map[string]interface{})
-	if err := Node(result, &model); err != nil {
+	if err := d.q.node(result, &model); err != nil {
 		return nil, errors.Wrap(err, "parse query")
 	}
 
@@ -159,7 +159,7 @@ func (d *Deleter) Nodes() (uids []string, err error) {
 	}
 
 	var model []map[string]interface{}
-	if err := Nodes(result, &model); err != nil {
+	if err := d.q.nodes(result, &model); err != nil {
 		return nil, err
 	}
 
