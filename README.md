@@ -488,6 +488,23 @@ if err := tx.Get(&user).UID("0x9cd5").Node(); err != nil {
 fmt.Println(user)
 ```
 
+#### Get and Count
+
+```go
+tx := dgman.NewReadOnlyTxn(c)
+
+users := []*User{}
+
+count, err := tx.Get(&users).
+	Filter(`anyofterms(name, "wildan")`).
+	First(3).
+	Offset(3).
+	NodesAndCount()
+
+// count should return total of nodes regardless of pagination
+fmt.Println(count)
+```
+
 #### Custom Scanning Query results
 
 You can alternatively specify a different destination for your query results, by passing it as a parameter to the `Node` or `Nodes`.
@@ -522,7 +539,7 @@ type pagedResults struct {
 	}
 }
 
-result := pagedResults{}
+result := &pagedResults{}
 
 query := tx.
 	Query(
@@ -542,10 +559,7 @@ query := tx.
 			UID("result").
 			Query(`{ total: count(uid) }`),
 	).
-	Vars("getByName($name: string)", map[string]string{"$name": "wildan"}). // GraphQL query variables
-	Scan(&result) // run the query and unmarshal the result to the passed destination
-
-fmt.Println(result) // should be populated
+	Vars("getByName($name: string)", map[string]string{"$name": "wildan"}) // GraphQL query variables
 ```
 
 ### Delete Helper
