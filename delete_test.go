@@ -1,16 +1,17 @@
 package dgman
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestTraverseUIDs(t *testing.T) {
-	queryResult := []byte(`{"data":[{"uid":"0x12","friends":[{"uid":"0x13","friends":[{"uid":"0x18","friends":[{"uid":"0x19"},{"uid":"0x20"}]}]},{"uid":"0x14"}]},{"uid":"0x15","friends":[{"uid":"0x16"},{"uid":"0x17"}]}]}`)
+	queryResult := []byte(`[{"uid":"0x12","friends":[{"uid":"0x13","friends":[{"uid":"0x18","friends":[{"uid":"0x19"},{"uid":"0x20"}]}]},{"uid":"0x14"}]},{"uid":"0x15","friends":[{"uid":"0x16"},{"uid":"0x17"}]}]`)
 
 	var model []map[string]interface{}
-	if err := Nodes(queryResult, &model); err != nil {
+	if err := json.Unmarshal(queryResult, &model); err != nil {
 		t.Error(err)
 	}
 
@@ -23,10 +24,10 @@ func TestTraverseUIDs(t *testing.T) {
 }
 
 func TestGenerateUidsJson(t *testing.T) {
-	queryResult := []byte(`{"data":[{"uid":"0x12","friends":[{"uid":"0x13","friends":[{"uid":"0x18","friends":[{"uid":"0x19"},{"uid":"0x20"}]}]},{"uid":"0x14"}]},{"uid":"0x15","friends":[{"uid":"0x16"},{"uid":"0x17"}]}]}`)
+	queryResult := []byte(`[{"uid":"0x12","friends":[{"uid":"0x13","friends":[{"uid":"0x18","friends":[{"uid":"0x19"},{"uid":"0x20"}]}]},{"uid":"0x14"}]},{"uid":"0x15","friends":[{"uid":"0x16"},{"uid":"0x17"}]}]`)
 
 	var model []map[string]interface{}
-	if err := Nodes(queryResult, &model); err != nil {
+	if err := json.Unmarshal(queryResult, &model); err != nil {
 		t.Error(err)
 	}
 

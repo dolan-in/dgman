@@ -36,6 +36,8 @@
     - [Get by Filter](#get-by-filter)
     - [Get by Query](#get-by-query)
     - [Get by UID](#get-by-uid)
+	- [Custom Scanning Query Results](#custom-scanning-query-results)
+	- [Multiple Query Blocks](#multiple-query-blocks)
   - [Delete Helper](#delete-helper)
  - [Development](#development)
 
@@ -485,7 +487,7 @@ if err := tx.Get(&user).UID("0x9cd5").Node(); err != nil {
 fmt.Println(user)
 ```
 
-#### Scanning Query results
+#### Custom Scanning Query results
 
 You can alternatively specify a different destination for your query results, by passing it as a parameter to the `Node` or `Nodes`.
 
@@ -503,6 +505,43 @@ err := tx.Get(&User{}). // User here is only to specify the node type
 	Node(result)
 
 fmt.Println(result.Valid)
+```
+
+#### Multiple Query Blocks
+
+You can specify [multiple query blocks](https://dgraph.io/docs/query-language/#multiple-query-blocks), by passing multiple `Query` objects into `tx.Query`.
+
+```go
+tx := dgman.NewReadOnlyTxn(c)
+
+type pagedResults struct {
+	Paged    []*TestModel `json:"paged"`
+	PageInfo []struct {
+		Total int
+	}
+}
+
+result := &pagedResults{}
+
+query := tx.
+	Query(
+		dgman.NewQuery().
+			As("result"). // sets a variable name to the root query
+			Var(). // sets the query as a var, making it not returned in the results
+			Type(&TestModel{}). // sets the node type to query by
+			Filter(`anyofterms(name, $name)`),
+		dgman.NewQuery().
+			Name("paged"). // query block name to be returned in the query
+			UID("result"). // uid from var
+			First(2).
+			Offset(2).
+			All(1),
+		dgman.NewQuery().
+			Name("pageInfo").
+			UID("result").
+			Query(`{ total: count(uid) }`),
+	).
+	Vars("getByName($name: string)", map[string]string{"$name": "wildan"}) // GraphQL query variables
 ```
 
 ### Delete Helper

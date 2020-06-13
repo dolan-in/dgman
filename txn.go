@@ -121,13 +121,18 @@ func (t *TxnContext) Delete(model interface{}, commitNow ...bool) *Deleter {
 		optCommitNow = commitNow[0]
 	}
 
-	q := &Query{ctx: t.ctx, tx: t.txn, model: model}
+	q := &Query{ctx: t.ctx, tx: t.txn, model: model, name: "data"}
 	return &Deleter{q: q, ctx: t.ctx, tx: t.txn, commitNow: optCommitNow}
 }
 
 // Get prepares a query for a model
 func (t *TxnContext) Get(model interface{}) *Query {
-	return &Query{ctx: t.ctx, tx: t.txn, model: model}
+	return &Query{ctx: t.ctx, tx: t.txn, model: model, name: "data"}
+}
+
+// Query prepares a query with multiple query block
+func (t *TxnContext) Query(query ...*Query) *QueryBlock {
+	return &QueryBlock{ctx: t.ctx, tx: t.txn, blocks: query}
 }
 
 // NewTxnContext creates a new transaction coupled with a context
