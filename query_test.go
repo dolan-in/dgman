@@ -435,6 +435,44 @@ func TestQueryBlock(t *testing.T) {
 	assert.Equal(t, result.PageInfo[0].Total, 10)
 }
 
+func TestGetNodesAndCount(t *testing.T) {
+	c := newDgraphClient()
+	if _, err := CreateSchema(c, &TestModel{}); err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	models := []*TestModel{}
+	for i := 0; i < 5; i++ {
+		models = append(models, &TestModel{
+			Name:    fmt.Sprintf("wildan %d", i%10),
+			Address: "Beverly Hills",
+			Age:     i,
+		}, &TestModel{
+			Name:    fmt.Sprintf("alex %d", i%10),
+			Address: "New York",
+			Age:     i,
+		})
+	}
+
+	tx := NewTxn(c)
+	if err := tx.Create(&models, true); err != nil {
+		t.Error(err)
+		return
+	}
+
+	result := []*TestModel{}
+
+	tx = NewReadOnlyTxn(c)
+	count, err := tx.Get(&result).Filter(`anyofterms(name, "wildan")`).First(3).NodesAndCount()
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, result, 3)
+	assert.Equal(t, 5, count)
+}
+
 func TestExpandPredicate(t *testing.T) {
 	expectedDepthZero := `{
 		uid
