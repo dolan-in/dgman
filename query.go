@@ -134,7 +134,15 @@ type Query struct {
 	uid         string
 	filter      string
 	query       string
-	blocks      []*Query
+}
+
+type PagedResults struct {
+	Result   json.RawMessage
+	PageInfo []*PageInfo
+}
+
+type PageInfo struct {
+	Count int
 }
 
 // Name defines the query block name, which identifies the query results
@@ -335,6 +343,47 @@ func (q *Query) nodes(jsonData []byte, dst interface{}) error {
 	return json.Unmarshal(dataBytes, dst)
 }
 
+// NodesAndCount return paged nodes result with the total count of the query
+func (q *Query) NodesAndCount() (count int, err error) {
+	tx := TxnContext{txn: q.tx, ctx: q.ctx}
+
+	pagedResult := PagedResults{}
+	query := tx.Query(
+		NewQuery().
+			As("filtered").
+			Var().
+			UID(q.uid).
+			RootFunc(q.rootFunc).
+			Type(q.model).
+			Filter(q.filter),
+		NewQuery().
+			Name("result").
+			UID("filtered").
+			First(q.first).
+			After(q.after).
+			Offset(q.offset),
+		NewQuery().
+			Name("pageInfo").
+			UID("filtered").
+			Query(`{ count(uid) }`),
+	)
+
+	err = query.Scan(&pagedResult)
+	if err != nil {
+		return 0, err
+	}
+
+	if pagedResult.Result == nil {
+		return 0, nil
+	}
+
+	if err := json.Unmarshal(pagedResult.Result, q.model); err != nil {
+		return 0, err
+	}
+
+	return pagedResult.PageInfo[0].Count, nil
+}
+
 func (q *Query) generateQuery(queryBuf *strings.Builder) {
 	queryBuf.WriteString("\t")
 
@@ -447,6 +496,11 @@ func (q *Query) executeQuery() (result []byte, err error) {
 	}
 
 	return resp.Json, nil
+}
+
+// NewQueryBlock returns a new empty query block
+func NewQueryBlock() *Query {
+	return &Query{}
 }
 
 // NewQuery returns a new empty query
