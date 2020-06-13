@@ -521,7 +521,7 @@ type pagedResults struct {
 	}
 }
 
-result := &pagedResults{}
+result := pagedResults{}
 
 query := tx.
 	Query(
@@ -541,7 +541,10 @@ query := tx.
 			UID("result").
 			Query(`{ total: count(uid) }`),
 	).
-	Vars("getByName($name: string)", map[string]string{"$name": "wildan"}) // GraphQL query variables
+	Vars("getByName($name: string)", map[string]string{"$name": "wildan"}). // GraphQL query variables
+	Scan(&result) // run the query and unmarshal the result to the passed destination
+
+fmt.Println(result) // should be populated
 ```
 
 ### Delete Helper
