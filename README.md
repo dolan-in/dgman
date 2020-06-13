@@ -36,6 +36,7 @@
     - [Get by Filter](#get-by-filter)
     - [Get by Query](#get-by-query)
     - [Get by UID](#get-by-uid)
+    - [Get and Count](#get-and-count)
 	- [Custom Scanning Query Results](#custom-scanning-query-results)
 	- [Multiple Query Blocks](#multiple-query-blocks)
   - [Delete Helper](#delete-helper)
