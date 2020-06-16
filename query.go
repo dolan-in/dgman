@@ -349,24 +349,28 @@ func (q *Query) NodesAndCount() (count int, err error) {
 
 	pagedResult := PagedResults{}
 	query := tx.Query(
-		NewQuery().
-			As("filtered").
-			Var().
-			UID(q.uid).
-			RootFunc(q.rootFunc).
-			Type(q.model).
-			Filter(q.filter),
-		NewQuery().
-			Name("result").
-			UID("filtered").
-			First(q.first).
-			After(q.after).
-			Offset(q.offset),
-		NewQuery().
-			Name("pageInfo").
-			UID("filtered").
-			Query(`{ count(uid) }`),
-	)
+		&Query{
+			as:       "filtered",
+			isVar:    true,
+			uid:      q.uid,
+			rootFunc: q.rootFunc,
+			model:    q.model,
+			filter:   q.filter,
+		},
+		&Query{
+			name:   "result",
+			uid:    "filtered",
+			first:  q.first,
+			after:  q.after,
+			offset: q.offset,
+			order:  q.order,
+		},
+		&Query{
+			name:  "pageInfo",
+			uid:   "filtered",
+			query: "{ count(uid) }",
+		},
+	).Vars(q.paramString, q.vars)
 
 	err = query.Scan(&pagedResult)
 	if err != nil {
