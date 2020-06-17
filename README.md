@@ -533,7 +533,7 @@ You can specify [multiple query blocks](https://dgraph.io/docs/query-language/#m
 tx := dgman.NewReadOnlyTxn(c)
 
 type pagedResults struct {
-	Paged    []*TestModel `json:"paged"`
+	Paged    []*User `json:"paged"`
 	PageInfo []struct {
 		Total int
 	}
@@ -546,7 +546,7 @@ query := tx.
 		dgman.NewQuery().
 			As("result"). // sets a variable name to the root query
 			Var(). // sets the query as a var, making it not returned in the results
-			Type(&TestModel{}). // sets the node type to query by
+			Type(&User{}). // sets the node type to query by
 			Filter(`anyofterms(name, $name)`),
 		dgman.NewQuery().
 			Name("paged"). // query block name to be returned in the query
@@ -560,6 +560,13 @@ query := tx.
 			Query(`{ total: count(uid) }`),
 	).
 	Vars("getByName($name: string)", map[string]string{"$name": "wildan"}) // GraphQL query variables
+
+if err := query.Scan(&result); err != nil {
+	panic(err)
+}
+
+// result should be populated
+fmt.Println(result)
 ```
 
 ### Delete Helper
