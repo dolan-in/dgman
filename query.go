@@ -364,6 +364,7 @@ func (q *Query) NodesAndCount() (count int, err error) {
 			after:  q.after,
 			offset: q.offset,
 			order:  q.order,
+			query:  q.query,
 		},
 		&Query{
 			name:  "pageInfo",
