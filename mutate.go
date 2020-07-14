@@ -298,13 +298,15 @@ func (m *mutation) generateQueryConditions(data interface{}, index int) (queries
 				filter = fmt.Sprintf("NOT uid(%s) AND %s", uid, filter)
 			}
 
+			createOrGet := m.returnQuery && (m.predicate == "" || m.predicate == schema.Predicate)
+
 			queryFields := fmt.Sprintf("%s as uid", uidListIndex)
-			if m.returnQuery && (m.predicate == "" || m.predicate == schema.Predicate) {
+			if createOrGet {
 				queryFields = fmt.Sprintf("%s\nexpand(_all_)", queryFields)
 			}
 			queries = append(queries, fmt.Sprintf("\t%s(func: type(%s), first: 1) @filter(%s) {\n%s\n}", queryIndex, m.mType.nodeType, filter, queryFields))
 			// on upsert field, allow mutation to continue, skip condition
-			if m.predicate != schema.Predicate {
+			if m.predicate != schema.Predicate || createOrGet {
 				conditions = append(conditions, fmt.Sprintf("eq(len(%s), 0)", uidListIndex))
 			}
 		}
