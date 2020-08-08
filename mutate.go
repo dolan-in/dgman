@@ -26,6 +26,7 @@ import (
 
 	"github.com/dgraph-io/dgo/v200"
 	"github.com/dgraph-io/dgo/v200/protos/api"
+	"github.com/mitchellh/reflectwalk"
 	"github.com/pkg/errors"
 )
 
@@ -453,24 +454,36 @@ func isNull(x interface{}) bool {
 	return x == nil || reflect.DeepEqual(x, reflect.Zero(reflect.TypeOf(x)).Interface())
 }
 
-func isTime(refType reflect.Type) bool {
-	return refType.PkgPath() == "time"
+// SetTypes recursively walks all structures in data and sets the value of the
+// `dgraph.type` struct field. The type, in order of preference, is either the
+// value of the `dgraph` struct tag on the `dgraph.type` struct field, or the
+// struct name.
+// Courtesy of @freb
+func SetTypes(data interface{}) error {
+	return reflectwalk.Walk(data, typeWalker{})
 }
 
-func injectTypeInValue(refVal *reflect.Value) error {
-	refType := refVal.Type()
-	for i := refVal.NumField() - 1; i >= 0; i-- {
-		field := refType.Field(i)
-		fieldVal := refVal.Field(i)
+type typeWalker struct {
+	nodeType string
+}
 
-		if !fieldVal.CanSet() {
-			// don't access unexported fields
-			continue
-		}
+func (w typeWalker) Struct(v reflect.Value) error {
+	vType := v.Type()
+	nodeType := vType.Name()
 
-		predicate := getPredicate(&field)
-		if predicate == dgraphTypePredicate {
-			nodeType := getNodeType(refType)
+	for i := v.NumField() - 1; i >= 0; i-- {
+		field := vType.Field(i)
+		fieldVal := v.Field(i)
+
+		if getPredicate(&field) == dgraphTypePredicate {
+			if !fieldVal.CanSet() {
+				return fmt.Errorf("dgraph.type not settable on %s.%s", nodeType, field.Name) // did you pass pointer?
+			}
+
+			dgraphTag := field.Tag.Get(tagName)
+			if dgraphTag != "" {
+				nodeType = dgraphTag
+			}
 			switch field.Type.Kind() {
 			case reflect.String:
 				fieldVal.SetString(nodeType)
@@ -482,68 +495,19 @@ func injectTypeInValue(refVal *reflect.Value) error {
 			default:
 				return errors.New(`unsupported type for "dgraph.type" predicate`)
 			}
-		}
 
-		// nested structure, try to traverse
-		switch field.Type.Kind() {
-		case reflect.Ptr:
-			elemType := field.Type.Elem()
-			if elemType.Kind() != reflect.Struct || isTime(elemType) {
-				continue
-			}
-		case reflect.Slice:
-			elemType := field.Type.Elem()
-			if elemType.Kind() == reflect.Ptr {
-				elemType = elemType.Elem()
-			}
-			if elemType.Kind() != reflect.Struct || isTime(elemType) {
-				continue
-			}
-			fieldVal = fieldVal.Addr()
-		case reflect.Struct:
-			if isTime(field.Type) {
-				continue
-			}
-			fieldVal = fieldVal.Addr()
-		default:
-			continue
-		}
-		if err := injectType(fieldVal.Interface()); err != nil {
-			return err
+			break
 		}
 	}
 	return nil
 }
 
-func injectType(data interface{}) error {
-	refVal := reflect.ValueOf(data)
-	if refVal.Type().Kind() != reflect.Ptr {
-		return fmt.Errorf("passed model %s is not a pointer", refVal.Type())
-	}
-
-	refVal = refVal.Elem()
-	switch refVal.Kind() {
-	case reflect.Slice:
-		for i := refVal.Len() - 1; i >= 0; i-- {
-			elVal := refVal.Index(i)
-			if elVal.Kind() == reflect.Ptr {
-				elVal = elVal.Elem()
-			}
-			if err := injectTypeInValue(&elVal); err != nil {
-				return err
-			}
-		}
-	case reflect.Struct:
-		if err := injectTypeInValue(&refVal); err != nil {
-			return err
-		}
-	}
-
+func (w typeWalker) StructField(f reflect.StructField, v reflect.Value) error {
 	return nil
 }
 
 func marshalAndInjectType(data interface{}) ([]byte, error) {
-	if err := injectType(data); err != nil {
+	if err := SetTypes(data); err != nil {
 		return nil, errors.Wrap(err, "inject type")
 	}
 	return json.Marshal(data)

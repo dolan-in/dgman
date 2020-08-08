@@ -6,6 +6,7 @@ require (
 	github.com/google/go-cmp v0.4.0 // indirect
 	github.com/kr/logfmt v0.0.0-20140226030751-b84e30acd515
 	github.com/kr/pretty v0.2.0 // indirect
+	github.com/mitchellh/reflectwalk v1.0.1
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.4.0
 	golang.org/x/net v0.0.0-20200114155413-6afb5195e5aa // indirect

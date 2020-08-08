@@ -281,20 +281,17 @@ func parseDgraphTag(field *reflect.StructField) (*Schema, error) {
 	return schema, nil
 }
 
+func getElemType(elemable reflect.Type) reflect.Type {
+	if elemable.Kind() == reflect.Slice || elemable.Kind() == reflect.Ptr {
+		return getElemType(elemable.Elem())
+	}
+	return elemable
+}
+
 func reflectType(model interface{}) (reflect.Type, error) {
 	current := reflect.TypeOf(model)
 
-	if (current.Kind() == reflect.Ptr || current.Kind() == reflect.Slice) && current != nil {
-		current = current.Elem()
-		// if pointer to slice
-		if current.Kind() == reflect.Slice {
-			current = current.Elem()
-
-			if current.Kind() == reflect.Ptr {
-				current = current.Elem()
-			}
-		}
-	}
+	current = getElemType(current)
 
 	if current.Kind() != reflect.Struct && current.Kind() != reflect.Interface {
 		return nil, fmt.Errorf("model \"%s\" passed for schema is not a struct", current.Name())
@@ -442,9 +439,7 @@ func MutateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
 func getNodeType(dataType reflect.Type) string {
 	// get node type from struct name
 	nodeType := ""
-	for dataType.Kind() != reflect.Struct {
-		dataType = dataType.Elem()
-	}
+	dataType = getElemType(dataType)
 
 	nodeType = dataType.Name()
 
