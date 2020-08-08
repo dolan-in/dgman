@@ -539,7 +539,7 @@ func Test_parseQueryWithParams(t *testing.T) {
 			name: "should parse uid as query param",
 			args: args{
 				query:  "@filter(uid($1) OR uid($2))",
-				params: []interface{}{UID("0x1234"), UID("0axz)12}345")},
+				params: []interface{}{UID("0x1234"), UID("0xz)12}345")},
 			},
 			want: "@filter(uid(0x1234) OR uid(0x12345))",
 		},
@@ -547,7 +547,7 @@ func Test_parseQueryWithParams(t *testing.T) {
 			name: "should parse uids as query param",
 			args: args{
 				query:  "@filter(uid_in($1))",
-				params: []interface{}{UIDs([]string{"0x1234", "0axz)12}345"})},
+				params: []interface{}{UIDs([]string{"0x1234", "0xz)12}345"})},
 			},
 			want: "@filter(uid_in(0x1234, 0x12345))",
 		},
