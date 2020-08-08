@@ -1,5 +1,7 @@
 sudo: false
 language: go
+go: 
+  - "1.14"
 git:
   depth: 50
 env:
