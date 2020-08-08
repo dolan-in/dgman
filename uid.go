@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	uidCleanerRegex = regexp.MustCompile("[^x0-9]+")
+	uidCleanerRegex = regexp.MustCompile("[^xa-fA-F0-9]+")
 
 	_ ParamFormatter = (*UID)(nil)
 	_ ParamFormatter = (*UIDs)(nil)
