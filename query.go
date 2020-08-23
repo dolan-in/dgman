@@ -504,8 +504,8 @@ func (q *Query) executeQuery() (result []byte, err error) {
 }
 
 // NewQueryBlock returns a new empty query block
-func NewQueryBlock() *Query {
-	return &Query{}
+func NewQueryBlock() *QueryBlock {
+	return &QueryBlock{}
 }
 
 // NewQuery returns a new empty query
