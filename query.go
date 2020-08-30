@@ -56,9 +56,9 @@ func (q *QueryBlock) Vars(funcDef string, vars map[string]string) *QueryBlock {
 	return q
 }
 
-// Add adds a query to the query block
-func (q *QueryBlock) Add(query *Query) *QueryBlock {
-	q.blocks = append(q.blocks, query)
+// Add adds queries to the query block
+func (q *QueryBlock) Add(query ...*Query) *QueryBlock {
+	q.blocks = append(q.blocks, query...)
 	return q
 }
 
@@ -504,8 +504,8 @@ func (q *Query) executeQuery() (result []byte, err error) {
 }
 
 // NewQueryBlock returns a new empty query block
-func NewQueryBlock() *QueryBlock {
-	return &QueryBlock{}
+func NewQueryBlock(queries ...*Query) *QueryBlock {
+	return &QueryBlock{blocks: queries}
 }
 
 // NewQuery returns a new empty query
