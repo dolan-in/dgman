@@ -476,13 +476,13 @@ func (w typeWalker) Struct(v reflect.Value) error {
 		fieldVal := v.Field(i)
 
 		if getPredicate(&field) == dgraphTypePredicate {
-			if !fieldVal.CanSet() {
-				return fmt.Errorf("dgraph.type not settable on %s.%s", nodeType, field.Name) // did you pass pointer?
-			}
-
 			dgraphTag := field.Tag.Get(tagName)
 			if dgraphTag != "" {
 				nodeType = dgraphTag
+			}
+
+			if !fieldVal.CanSet() {
+				return fmt.Errorf("dgraph.type not settable on %s.%s", nodeType, field.Name) // did you pass pointer?
 			}
 			switch field.Type.Kind() {
 			case reflect.String:
