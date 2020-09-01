@@ -123,7 +123,7 @@ func (t *TypeSchema) String() string {
 }
 
 // Marshal marshals passed models into type and schema definitions
-func (t *TypeSchema) Marshal(parseType bool, models ...interface{}) {
+func (t *TypeSchema) Marshal(parentType string, models ...interface{}) {
 	for _, model := range models {
 		current, err := reflectType(model)
 		if err != nil {
@@ -140,8 +140,11 @@ func (t *TypeSchema) Marshal(parseType bool, models ...interface{}) {
 		if _, ok := t.Types[nodeType]; ok {
 			return
 		}
-		if parseType {
+		if parentType == "" {
 			t.Types[nodeType] = make(SchemaMap)
+		} else {
+			// allow anonymous fields to be parsed into parent type
+			nodeType = parentType
 		}
 
 		numFields := current.NumField()
@@ -155,7 +158,7 @@ func (t *TypeSchema) Marshal(parseType bool, models ...interface{}) {
 
 			if fieldType.Kind() == reflect.Struct && field.Anonymous {
 				fieldPtr := reflect.New(fieldType)
-				t.Marshal(false, fieldPtr.Interface())
+				t.Marshal(nodeType, fieldPtr.Interface())
 				continue
 			}
 
@@ -176,13 +179,11 @@ func (t *TypeSchema) Marshal(parseType bool, models ...interface{}) {
 				if s.Type == "uid" || s.Type == "[uid]" {
 					// traverse node
 					edgePtr := reflect.New(fieldType)
-					t.Marshal(true, edgePtr.Interface())
+					t.Marshal("", edgePtr.Interface())
 				}
 
 				// each type should uniquely specify a predicate, that's why use a map on predicate
-				if parseType {
-					t.Types[nodeType][s.Predicate] = s
-				}
+				t.Types[nodeType][s.Predicate] = s
 				if exists && schema.String() != s.String() {
 					log.Printf("conflicting schema %s, already defined as \"%s\", trying to define \"%s\"\n", s.Predicate, schema.String(), s.String())
 				} else {
@@ -405,7 +406,7 @@ func cleanExistingSchema(c *dgo.Dgraph, schemaMap SchemaMap) error {
 // returns the created schema map and types, does not update duplicate/conflict predicates.
 func CreateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
 	typeSchema := NewTypeSchema()
-	typeSchema.Marshal(true, models...)
+	typeSchema.Marshal("", models...)
 
 	err := cleanExistingSchema(c, typeSchema.Schema)
 	if err != nil {
@@ -425,7 +426,7 @@ func CreateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
 // attempt updates for type, schema, and indexes.
 func MutateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
 	typeSchema := NewTypeSchema()
-	typeSchema.Marshal(true, models...)
+	typeSchema.Marshal("", models...)
 
 	alterString := typeSchema.String()
 	if alterString != "" {
