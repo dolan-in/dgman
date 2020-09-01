@@ -90,7 +90,7 @@ type NewUser struct {
 
 func TestMarshalSchema(t *testing.T) {
 	typeSchema := NewTypeSchema()
-	typeSchema.Marshal(true, &User{})
+	typeSchema.Marshal("", &User{})
 	types, schema := typeSchema.Types, typeSchema.Schema
 	assert.Equal(t, "username: string @index(hash) @upsert .", schema["username"].String())
 	assert.Equal(t, "email: string @index(hash) @upsert .", schema["email"].String())
@@ -118,6 +118,10 @@ func TestMarshalSchema(t *testing.T) {
 
 	assert.Contains(t, types, "User")
 	assert.Contains(t, types, "School")
+
+	// anonymous fields should be included in type
+	assert.Contains(t, types["User"], "field_1")
+	assert.Contains(t, types["User"], "field_2")
 }
 
 func TestGetNodeType(t *testing.T) {
