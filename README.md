@@ -14,9 +14,11 @@
 - Query helpers.
 - Delete helper.
 
-## Roadmap
-- Query builders
-- Query fragments
+## Roadmap (v2)
+- Query builder
+- Upsert builder (Query and Mutation blocks)
+- Recursive unique checking
+- API cleanup
 
 ## Table of Contents
 
