@@ -138,7 +138,7 @@ func (t *TypeSchema) Marshal(parentType string, models ...interface{}) {
 
 		nodeType := GetNodeType(model)
 		if _, ok := t.Types[nodeType]; ok {
-			return
+			continue
 		}
 		if parentType == "" {
 			t.Types[nodeType] = make(SchemaMap)
