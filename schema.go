@@ -18,7 +18,7 @@ package dgman
 
 import (
 	"context"
-	"encoding/json"
+
 	"fmt"
 	"log"
 	"reflect"
@@ -30,7 +30,11 @@ import (
 	"github.com/dgraph-io/dgo/v200"
 )
 
-const tagName = "dgraph"
+const (
+	tagName             = "dgraph"
+	predicateDgraphType = "dgraph.type"
+	predicateUid        = "uid"
+)
 
 type rawSchema struct {
 	Predicate  string
@@ -171,7 +175,7 @@ func (t *TypeSchema) Marshal(parentType string, models ...interface{}) {
 			schema, exists := t.Schema[s.Predicate]
 			parse := s.Predicate != "" &&
 				s.Predicate != "uid" && // don't parse uid
-				s.Predicate != dgraphTypePredicate && // don't parse dgraph.type
+				s.Predicate != predicateDgraphType && // don't parse dgraph.type
 				!strings.Contains(s.Predicate, "|") && // don't parse facet
 				s.Predicate[0] != '~' // don't parse reverse edge
 			if parse {
@@ -448,7 +452,7 @@ func getNodeType(dataType reflect.Type) string {
 		field := dataType.Field(i)
 		predicate := getPredicate(&field)
 
-		if predicate == dgraphTypePredicate {
+		if predicate == predicateDgraphType {
 			dgraphTag := field.Tag.Get(tagName)
 			if dgraphTag != "" {
 				nodeType = dgraphTag

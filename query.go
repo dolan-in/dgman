@@ -18,7 +18,8 @@ package dgman
 
 import (
 	"context"
-	"encoding/json"
+	stdjson "encoding/json"
+
 	"errors"
 	"fmt"
 	"strconv"
@@ -137,12 +138,18 @@ type Query struct {
 }
 
 type PagedResults struct {
-	Result   json.RawMessage
+	Result   stdjson.RawMessage
 	PageInfo []*PageInfo
 }
 
 type PageInfo struct {
 	Count int
+}
+
+// Model defines the model definition to query by, and as a default query unmarshal destination
+func (q *Query) Model(model interface{}) *Query {
+	q.model = model
+	return nil
 }
 
 // Name defines the query block name, which identifies the query results
@@ -389,6 +396,14 @@ func (q *Query) NodesAndCount() (count int, err error) {
 	return pagedResult.PageInfo[0].Count, nil
 }
 
+func isUID(str string) bool {
+	return strings.HasPrefix(str, "0x")
+}
+
+func isUIDFunc(str string) bool {
+	return strings.HasPrefix(str, "uid(")
+}
+
 func (q *Query) generateQuery(queryBuf *strings.Builder) {
 	queryBuf.WriteString("\t")
 
@@ -452,6 +467,12 @@ func (q *Query) generateQuery(queryBuf *strings.Builder) {
 		queryBuf.WriteString("@filter(")
 		queryBuf.WriteString(q.filter)
 		queryBuf.WriteString(") ")
+	} else if isUID(q.uid) && q.model != nil {
+		// make sure deleted nodes are not returned on get by uid
+		nodeType := GetNodeType(q.model)
+		queryBuf.WriteString("@filter(type(")
+		queryBuf.WriteString(nodeType)
+		queryBuf.WriteString(")) ")
 	}
 
 	if q.groupBy != "" {
@@ -510,7 +531,9 @@ func NewQueryBlock(queries ...*Query) *QueryBlock {
 
 // NewQuery returns a new empty query
 func NewQuery() *Query {
-	return &Query{}
+	return &Query{
+		name: "data", // default value
+	}
 }
 
 func parseQueryWithParams(query string, params []interface{}) string {

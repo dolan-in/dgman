@@ -19,24 +19,16 @@ package dgman
 import (
 	"context"
 	"os"
-	"regexp"
 	"strconv"
-	"strings"
 
 	"github.com/dgraph-io/dgo/v200"
+	jsoniter "github.com/json-iterator/go"
 
 	"github.com/dgraph-io/dgo/v200/protos/api"
 	"google.golang.org/grpc"
 )
 
-var matchFirstCap = regexp.MustCompile("(.)([A-Z][a-z]+)")
-var matchAllCap = regexp.MustCompile("([a-z0-9])([A-Z])")
-
-func toSnakeCase(str string) string {
-	snake := matchFirstCap.ReplaceAllString(str, "${1}_${2}")
-	snake = matchAllCap.ReplaceAllString(snake, "${1}_${2}")
-	return strings.ToLower(snake)
-}
+var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 func newDgraphClient() *dgo.Dgraph {
 	d, err := grpc.Dial(os.Getenv("DGMAN_TEST_DATABASE"), grpc.WithInsecure())
@@ -65,4 +57,32 @@ func dropAll(client ...*dgo.Dgraph) {
 
 func intToBytes(no int) []byte {
 	return []byte(strconv.Itoa(no))
+}
+
+// Set implementation
+
+var exists = struct{}{}
+
+type set map[string]struct{}
+
+func newSet(values ...string) set {
+	s := set{}
+	// add initial values
+	for _, value := range values {
+		s.Add(value)
+	}
+	return s
+}
+
+func (s set) Add(value string) {
+	s[value] = exists
+}
+
+func (s set) Remove(value string) {
+	delete(s, value)
+}
+
+func (s set) Has(value string) bool {
+	_, c := s[value]
+	return c
 }
