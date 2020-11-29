@@ -4,6 +4,7 @@ require (
 	github.com/dgraph-io/dgo/v200 v200.0.0-20200401175452-e463f9234453
 	github.com/gin-gonic/gin v1.5.0
 	github.com/google/go-cmp v0.4.0 // indirect
+	github.com/json-iterator/go v1.1.7
 	github.com/kr/logfmt v0.0.0-20140226030751-b84e30acd515
 	github.com/kr/pretty v0.2.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.1

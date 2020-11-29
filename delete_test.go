@@ -1,7 +1,6 @@
 package dgman
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -71,7 +70,7 @@ func TestDeleteFilter(t *testing.T) {
 
 	tx := NewTxn(c)
 
-	err := tx.Create(&users)
+	_, err := tx.Mutate(&users)
 	if err != nil {
 		t.Error(err)
 	}
@@ -104,9 +103,9 @@ func TestDeleteQuery(t *testing.T) {
 	school := School{
 		Name: "wildan's school",
 	}
-	tx := NewTxn(c)
+	tx := NewTxn(c).CommitNow()
 
-	err := tx.Create(&school, true)
+	_, err := tx.Mutate(&school)
 	if err != nil {
 		t.Error(err)
 	}
@@ -132,7 +131,7 @@ func TestDeleteQuery(t *testing.T) {
 
 	tx = NewTxn(c)
 
-	err = tx.Create(&users)
+	_, err = tx.Mutate(&users)
 	if err != nil {
 		t.Error(err)
 	}
@@ -194,7 +193,7 @@ func TestDeleteQueryNode(t *testing.T) {
 
 	tx := NewTxn(c)
 
-	err := tx.Create(&users)
+	_, err := tx.Mutate(&users)
 	if err != nil {
 		t.Error(err)
 	}
@@ -246,9 +245,9 @@ func TestDeleteEdge(t *testing.T) {
 		},
 	}
 
-	tx := NewTxn(c)
+	tx := NewTxn(c).CommitNow()
 
-	err := tx.Create(&schools, true)
+	_, err := tx.Mutate(&schools)
 	if err != nil {
 		t.Error(err)
 	}
@@ -262,7 +261,7 @@ func TestDeleteEdge(t *testing.T) {
 		Schools:  schools,
 	}
 
-	err = NewTxn(c).Create(&user, true)
+	_, err = NewTxn(c).CommitNow().Mutate(&user)
 	if err != nil {
 		t.Error(err)
 	}

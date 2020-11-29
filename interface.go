@@ -25,15 +25,14 @@ import (
 type TxnInterface interface {
 	Commit() error
 	Discard() error
+	CommitNow() *TxnContext
 	BestEffort() *TxnContext
 	Txn() *dgo.Txn
 	WithContext(context.Context)
 	Context() context.Context
-	Mutate(data interface{}, commitNow ...bool) error
-	Create(data interface{}, commitNow ...bool) error
-	Update(data interface{}, commitNow ...bool) error
-	Upsert(data interface{}, predicate string, commitNow ...bool) error
-	CreateOrGet(data interface{}, predicate string, commitNow ...bool) error
+	Mutate(data interface{}) ([]string, error)
+	MutateOrGet(data interface{}, predicates ...string) ([]string, error)
+	Upsert(data interface{}, predicates ...string) ([]string, error)
 	Delete(model interface{}, commitNow ...bool) *Deleter
 	Get(model interface{}) *Query
 }
