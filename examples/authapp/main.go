@@ -2,11 +2,11 @@ package main
 
 import (
 	"log"
+	"net/http"
 
 	"github.com/dgraph-io/dgo/v200"
 	"github.com/dgraph-io/dgo/v200/protos/api"
-	"github.com/dolan-in/dgman"
-	"github.com/gin-gonic/gin"
+	"github.com/dolan-in/dgman/v2"
 	"google.golang.org/grpc"
 )
 
@@ -39,8 +39,13 @@ func main() {
 
 	api := newApi(dg)
 
-	server := gin.New()
-	server.POST("/register", api.Register)
-	server.POST("/auth", api.Login)
-	server.Run(":4000")
+	router := http.NewServeMux()
+	router.HandleFunc("/register", api.Register)
+	router.HandleFunc("/auth", api.Login)
+
+	server := http.Server{
+		Addr:    ":4000",
+		Handler: router,
+	}
+	log.Fatal(server.ListenAndServe())
 }

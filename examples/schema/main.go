@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dolan-in/dgman"
+	"github.com/dolan-in/dgman/v2"
 
 	"github.com/dgraph-io/dgo/v200"
 
