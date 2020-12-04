@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/dgraph-io/dgo/v200"
-	"github.com/dolan-in/dgman"
+	"github.com/dolan-in/dgman/v2"
 )
 
 var (
@@ -44,7 +44,7 @@ type userStore struct {
 }
 
 func (s *userStore) Create(ctx context.Context, user *User) error {
-	err := dgman.NewTxnContext(ctx, s.c).Create(user, true)
+	_, err := dgman.NewTxnContext(ctx, s.c).CommitNow().Mutate(user)
 	if err != nil {
 		if uniqueErr, ok := err.(*dgman.UniqueError); ok {
 			if uniqueErr.Field == "email" {
