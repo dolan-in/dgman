@@ -146,10 +146,10 @@ func TestFind(t *testing.T) {
 
 	var dst []TestModel
 	tx = NewTxn(c)
-	if err := tx.Get(&dst).Query(`@filter(allofterms(name, $1)) {
+	if err := tx.Get(&dst).Filter("allofterms(name, $1)", "wildan").Query(`{
 		 uid
 		 expand(_all_)
-	 }`, "wildan").Nodes(); err != nil {
+	 }`).Nodes(); err != nil {
 		t.Error(err)
 	}
 
@@ -404,7 +404,7 @@ func TestQueryBlock(t *testing.T) {
 
 	query := tx.
 		Query(
-			NewQuery().As("result").Var().Type(&TestModel{}).Filter(`anyofterms(name, $name)`),
+			NewQuery().As("result").Var().Model(&TestModel{}).Filter(`anyofterms(name, $name)`),
 			NewQuery().Name("paged").UID("result").First(2).Offset(2).All(1),
 			NewQuery().Name("pageInfo").UID("result").Query(`{ total: count(uid) }`),
 		).

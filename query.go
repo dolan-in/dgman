@@ -19,13 +19,14 @@ package dgman
 import (
 	"context"
 	stdjson "encoding/json"
+	"reflect"
 
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/dgraph-io/dgo/v200/protos/api"
+	"github.com/pkg/errors"
 
 	"github.com/dgraph-io/dgo/v200"
 )
@@ -69,13 +70,75 @@ func (q *QueryBlock) Blocks(query ...*Query) *QueryBlock {
 	return q
 }
 
-// Scan unmarshals the query result into provided destination
-func (q *QueryBlock) Scan(dst interface{}) error {
+func (q *QueryBlock) scan(result []byte, dst ...interface{}) error {
+	if len(dst) == 0 {
+		err := q.scanModel(result)
+		if err != nil {
+			return errors.Wrap(err, "scanModel failed")
+		}
+		return nil
+	}
+	if err := json.Unmarshal(result, dst[0]); err != nil {
+		return errors.Wrap(err, "unmarshal query result failed")
+	}
+	return nil
+}
+
+func (q *QueryBlock) scanModel(result []byte) error {
+	var queryMap map[string]stdjson.RawMessage
+	if err := json.Unmarshal(result, &queryMap); err != nil {
+		return errors.Wrap(err, "queryMap unmarshal failed")
+	}
+	for _, block := range q.blocks {
+		// skip any nils
+		blockResult := queryMap[block.name]
+		if len(blockResult) == 0 {
+			continue
+		}
+
+		if block.model == nil {
+			continue
+		}
+
+		modelType := reflect.TypeOf(block.model)
+		if modelType.Kind() != reflect.Ptr {
+			// not a pointer skip, to avoid panic
+			continue
+		}
+		modelType = modelType.Elem()
+
+		switch modelType.Kind() {
+		case reflect.Struct:
+			modelSliceRef := reflect.MakeSlice(reflect.SliceOf(reflect.PtrTo(modelType)), 1, 1)
+			modelSlice := reflect.New(modelSliceRef.Type())
+			modelSlice.Elem().Set(modelSliceRef)
+			if err := json.Unmarshal(blockResult, modelSlice.Interface()); err != nil {
+				return errors.Wrapf(err, "queryMap %s unmarshal failed", block.name)
+			}
+			if modelSlice.Elem().Len() > 0 {
+				// set the model value to the query result value
+				reflect.ValueOf(block.model).Elem().Set(modelSlice.Elem().Index(0).Elem())
+			}
+		case reflect.Slice:
+			if err := json.Unmarshal(blockResult, block.model); err != nil {
+				return errors.Wrapf(err, "queryMap %s unmarshal failed", block.name)
+			}
+		}
+	}
+	return nil
+}
+
+// Scan unmarshals the query result into provided destination,
+// if none is passed, it will be unmarshaled to the individual query models.
+func (q *QueryBlock) Scan(dst ...interface{}) error {
 	result, err := q.executeQuery()
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(result, dst)
+	if err = q.scan(result, dst...); err != nil {
+		return errors.Wrap(err, "scan failed")
+	}
+	return nil
 }
 
 func (q *QueryBlock) String() string {
@@ -149,7 +212,7 @@ type PageInfo struct {
 // Model defines the model definition to query by, and as a default query unmarshal destination
 func (q *Query) Model(model interface{}) *Query {
 	q.model = model
-	return nil
+	return q
 }
 
 // Name defines the query block name, which identifies the query results
@@ -168,12 +231,6 @@ func (q *Query) As(varName string) *Query {
 // Var defines whether a query block is a var, which are not returned in query results
 func (q *Query) Var() *Query {
 	q.isVar = true
-	return q
-}
-
-// Type sets the model struct to infer the node type
-func (q *Query) Type(model interface{}) *Query {
-	q.model = model
 	return q
 }
 
@@ -463,16 +520,18 @@ func (q *Query) generateQuery(queryBuf *strings.Builder) {
 	queryBuf.WriteString(") ")
 	// END ROOT FUNCTION
 
+	// make sure deleted nodes are not returned
+	typeIsNotNull := "has(dgraph.type)"
 	if q.filter != "" {
 		queryBuf.WriteString("@filter(")
+		queryBuf.WriteString(typeIsNotNull)
+		queryBuf.WriteString(" AND ")
 		queryBuf.WriteString(q.filter)
 		queryBuf.WriteString(") ")
-	} else if isUID(q.uid) && q.model != nil {
-		// make sure deleted nodes are not returned on get by uid
-		nodeType := GetNodeType(q.model)
-		queryBuf.WriteString("@filter(type(")
-		queryBuf.WriteString(nodeType)
-		queryBuf.WriteString(")) ")
+	} else {
+		queryBuf.WriteString("@filter(")
+		queryBuf.WriteString(typeIsNotNull)
+		queryBuf.WriteString(") ")
 	}
 
 	if q.groupBy != "" {
