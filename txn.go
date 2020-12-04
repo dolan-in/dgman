@@ -19,6 +19,7 @@ import (
 	"context"
 
 	"github.com/dgraph-io/dgo/v200"
+	"github.com/pkg/errors"
 )
 
 // TxnContext is dgo transaction coupled with context
@@ -104,15 +105,35 @@ func (t *TxnContext) Upsert(data interface{}, predicates ...string) ([]string, e
 	return mutation.do()
 }
 
-// Delete prepares a delete mutation using a query
-func (t *TxnContext) Delete(model interface{}, commitNow ...bool) *Deleter {
-	optCommitNow := false
-	if len(commitNow) > 0 {
-		optCommitNow = commitNow[0]
+// Delete will delete nodes using a query, nodes to delete are marked by the passed uid aliases
+func (t *TxnContext) Delete(query *QueryBlock, uids ...string) (DeleteQuery, error) {
+	if len(uids) == 0 {
+		return DeleteQuery{}, errors.New("uids cannot be empty")
 	}
+	return t.deleteQuery(query, uids...)
+}
 
-	q := &Query{ctx: t.ctx, tx: t.txn, model: model, name: "data"}
-	return &Deleter{q: q, ctx: t.ctx, tx: t.txn, commitNow: optCommitNow}
+// DeleteCond will delete nodes using a query with a condition,
+// nodes to delete are marked by the passed uid aliases
+func (t *TxnContext) DeleteCond(query *QueryBlock, conds ...DeleteCond) (DeleteQuery, error) {
+	if len(conds) == 0 {
+		return DeleteQuery{}, errors.New("conds cannot be empty")
+	}
+	return t.deleteQueryCondition(query, conds...)
+}
+
+// DeleteNode will delete a node(s) by its explicit uid
+func (t *TxnContext) DeleteNode(uids ...string) error {
+	if len(uids) == 0 {
+		return errors.New("uids cannot be empty")
+	}
+	return t.deleteNode(uids...)
+}
+
+// DeleteEdge will delete an edge of a node by predicate, optionally you can pass which edge uids to delete,
+// if none are passed, all edges of that predicate will be deleted
+func (t *TxnContext) DeleteEdge(uid string, predicate string, uids ...string) error {
+	return t.deleteEdge(uid, predicate, uids...)
 }
 
 // Get prepares a query for a model
