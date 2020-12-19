@@ -32,7 +32,7 @@ type TestUser struct {
 	Schools    []TestSchool  `json:"schools,omitempty" dgraph:"count"`
 	SchoolsPtr []*TestSchool `json:"schoolsPtr,omitempty" dgraph:"count"`
 	School     *TestSchool   `json:"school,omitempty"`
-	DType      []string      `json:"dgraph.type,omitempty"`
+	DType      []string      `json:"dgraph.type,omitempty" dgraph:"User"`
 }
 
 type TestSchool struct {
@@ -57,7 +57,7 @@ func (l ByUID) Less(i, j int) bool { return l.TestSchoolList[i].UID < l.TestScho
 type TestLocation struct {
 	UID        string   `json:"uid,omitempty"`
 	LocationID string   `json:"locationId,omitempty" dgraph:"index=term unique"`
-	DType      []string `json:"dgraph.type,omitempty"`
+	DType      []string `json:"dgraph.type,omitempty" dgraph:"Location"`
 }
 
 func createTestUser() TestUser {
@@ -270,4 +270,19 @@ func TestMutationUpsert(t *testing.T) {
 	}
 
 	assert.Equal(t, user2, updatedUser)
+}
+
+func TestSetTypes(t *testing.T) {
+	user := TestUser{
+		School: &TestSchool{
+			Location: TestLocation{},
+		},
+	}
+
+	err := SetTypes(&user)
+	require.NoError(t, err)
+
+	assert.Equal(t, "User", user.DType[0])
+	assert.Equal(t, "TestSchool", user.School.DType[0])
+	assert.Equal(t, "Location", user.School.Location.DType[0])
 }
