@@ -18,7 +18,6 @@ package dgman
 
 import (
 	"bytes"
-	"log"
 
 	"github.com/dgraph-io/dgo/v200/protos/api"
 	"github.com/pkg/errors"
@@ -49,9 +48,7 @@ type DeleteNode struct {
 
 func (d *DeleteNode) writeTo(buffer *bytes.Buffer) {
 	if len(d.Edges) == 0 {
-		// delete node
-		writeUID(buffer, d.UID)
-		buffer.WriteString("* * .\n")
+		writeDeleteNode(buffer, d.UID)
 		return
 	}
 
@@ -67,37 +64,12 @@ type DeleteEdge struct {
 
 func (d *DeleteEdge) writeTo(buffer *bytes.Buffer, uid string) {
 	if len(d.UIDs) == 0 {
-		// delete all edges
-		writeUID(buffer, uid)
-		writeIRI(buffer, d.Pred)
-		buffer.WriteString("* .\n")
+		writeDeleteAllEdges(buffer, uid, d.Pred)
 		return
 	}
 
 	for _, edgeUID := range d.UIDs {
-		// subject
-		writeUID(buffer, uid)
-		// predicate
-		writeIRI(buffer, d.Pred)
-		// object
-		writeUID(buffer, edgeUID)
-		buffer.WriteString(".\n")
-	}
-}
-
-func writeIRI(w *bytes.Buffer, iri string) {
-	w.WriteString("<")
-	w.WriteString(iri)
-	w.WriteString("> ")
-}
-
-func writeUID(w *bytes.Buffer, uid string) {
-	if isUID(uid) {
-		writeIRI(w, uid)
-	} else {
-		w.WriteString("uid(")
-		w.WriteString(uid)
-		w.WriteString(") ")
+		writeDeleteEdge(buffer, uid, d.Pred, edgeUID)
 	}
 }
 
@@ -113,7 +85,6 @@ func (d *TxnContext) deleteQuery(query *QueryBlock, params ...*DeleteParams) (De
 		for _, node := range param.Nodes {
 			node.writeTo(&nQuads)
 		}
-		log.Println(nQuads.String())
 		mutations[i] = &api.Mutation{
 			DelNquads: nQuads.Bytes(),
 			Cond:      param.Cond,
@@ -139,8 +110,7 @@ func (d *TxnContext) deleteQuery(query *QueryBlock, params ...*DeleteParams) (De
 func (d *TxnContext) deleteNode(uids ...string) error {
 	var nQuads bytes.Buffer
 	for _, uid := range uids {
-		writeIRI(&nQuads, uid)
-		nQuads.WriteString("* * .\n")
+		writeDeleteNodeRDF(&nQuads, uid)
 	}
 	_, err := d.txn.Mutate(d.ctx, &api.Mutation{
 		DelNquads: nQuads.Bytes(),
@@ -153,19 +123,70 @@ func (d *TxnContext) deleteEdge(uid string, predicate string, edgeUIDs ...string
 	var nQuads bytes.Buffer
 	if len(edgeUIDs) > 0 {
 		for _, edgeUID := range edgeUIDs {
-			writeIRI(&nQuads, uid)
-			writeIRI(&nQuads, predicate)
-			writeIRI(&nQuads, edgeUID)
-			nQuads.WriteString(".\n")
+			writeDeleteEdgeRDF(&nQuads, uid, predicate, edgeUID)
 		}
 	} else {
-		writeIRI(&nQuads, uid)
-		writeIRI(&nQuads, predicate)
-		nQuads.WriteString("* .\n")
+		writeDeleteAllEdgesRDF(&nQuads, uid, predicate)
 	}
 	_, err := d.txn.Mutate(d.ctx, &api.Mutation{
 		DelNquads: nQuads.Bytes(),
 		CommitNow: d.commitNow,
 	})
 	return err
+}
+
+func writeDeleteNode(w *bytes.Buffer, uid string) {
+	writeUID(w, uid)
+	w.WriteString("* * .\n")
+}
+
+func writeDeleteNodeRDF(w *bytes.Buffer, uid string) {
+	writeIRI(w, uid)
+	w.WriteString("* * .\n")
+}
+
+func writeDeleteEdge(w *bytes.Buffer, uid, predicate, edgeUID string) {
+	writeUID(w, uid)
+	writeIRI(w, predicate)
+	writeUID(w, edgeUID)
+	w.WriteString(".\n")
+}
+
+func writeDeleteEdgeRDF(w *bytes.Buffer, uid, predicate, edgeUID string) {
+	writeIRI(w, uid)
+	writeIRI(w, predicate)
+	writeIRI(w, edgeUID)
+	w.WriteString(".\n")
+}
+
+func writeDeleteAllEdges(w *bytes.Buffer, uid, predicate string) {
+	writeUID(w, uid)
+	writeIRI(w, predicate)
+	w.WriteString("* .\n")
+}
+
+func writeDeleteAllEdgesRDF(w *bytes.Buffer, uid, predicate string) {
+	writeIRI(w, uid)
+	writeIRI(w, predicate)
+	w.WriteString("* .\n")
+}
+
+func writeIRI(w *bytes.Buffer, iri string) {
+	w.WriteString("<")
+	w.WriteString(iri)
+	w.WriteString("> ")
+}
+
+func writeUIDFunc(w *bytes.Buffer, uidVar string) {
+	w.WriteString("uid(")
+	w.WriteString(uidVar)
+	w.WriteString(") ")
+}
+
+func writeUID(w *bytes.Buffer, uid string) {
+	if isUID(uid) {
+		writeIRI(w, uid)
+	} else {
+		writeUIDFunc(w, uid)
+	}
 }
