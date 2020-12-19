@@ -105,21 +105,21 @@ func (t *TxnContext) Upsert(data interface{}, predicates ...string) ([]string, e
 	return mutation.do()
 }
 
-// Delete will delete nodes using a query, nodes to delete are marked by the passed uid aliases
-func (t *TxnContext) Delete(query *QueryBlock, uids ...string) (DeleteQuery, error) {
-	if len(uids) == 0 {
-		return DeleteQuery{}, errors.New("uids cannot be empty")
+// Delete will delete nodes using delete parameters, which will generate RDF n-quads for deleting
+func (t *TxnContext) Delete(params ...*DeleteParams) error {
+	if len(params) == 0 {
+		return errors.New("params cannot be empty")
 	}
-	return t.deleteQuery(query, uids...)
+	return t.delete(params...)
 }
 
-// DeleteCond will delete nodes using a query with a condition,
-// nodes to delete are marked by the passed uid aliases
-func (t *TxnContext) DeleteCond(query *QueryBlock, conds ...DeleteCond) (DeleteQuery, error) {
-	if len(conds) == 0 {
+// DeleteQuery will delete nodes using a query and delete parameters, which will generate RDF n-quads for deleting
+// based on the query
+func (t *TxnContext) DeleteQuery(query *QueryBlock, params ...*DeleteParams) (DeleteQuery, error) {
+	if len(params) == 0 {
 		return DeleteQuery{}, errors.New("conds cannot be empty")
 	}
-	return t.deleteQueryCondition(query, conds...)
+	return t.deleteQuery(query, params...)
 }
 
 // DeleteNode will delete a node(s) by its explicit uid

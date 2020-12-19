@@ -33,8 +33,8 @@ type TxnInterface interface {
 	Mutate(data interface{}) ([]string, error)
 	MutateOrGet(data interface{}, predicates ...string) ([]string, error)
 	Upsert(data interface{}, predicates ...string) ([]string, error)
-	Delete(query *QueryBlock, uids ...string) (DeleteQuery, error)
-	DeleteCond(query *QueryBlock, conds ...DeleteCond) (DeleteQuery, error)
+	Delete(params ...*DeleteParams) error
+	DeleteQuery(query *QueryBlock, params ...*DeleteParams) (DeleteQuery, error)
 	DeleteNode(uids ...string) error
 	DeleteEdge(uid string, predicate string, uids ...string) error
 	Get(model interface{}) *Query
