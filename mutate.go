@@ -213,6 +213,80 @@ func (m *mutation) setRefsToUIDFunc(id, uidFunc string) {
 	}
 }
 
+func (m *mutation) copyNodeValues(nodeValue reflect.Value, field reflect.Value, schema *Schema, schemaIndex int) {
+	switch schema.Type {
+	case "[uid]":
+		edgesPlaceholder := reflect.MakeSlice(field.Type(), field.Len(), field.Cap())
+		edgesField := nodeValue.Field(schemaIndex)
+		edgesField.Set(edgesPlaceholder)
+		for i := 0; i < field.Len(); i++ {
+			setEdgeUID(edgesField.Index(i), field.Index(i))
+			if m.opcode == mutationUpsert {
+				m.addToRefMap(edgesField.Index(i))
+			}
+		}
+	case "uid":
+		edge := nodeValue.Field(schemaIndex)
+		setEdgeUID(edge, field)
+		if m.opcode == mutationUpsert {
+			m.addToRefMap(edge)
+		}
+	default:
+		if field.CanSet() {
+			nodeValue.Field(schemaIndex).Set(field)
+		}
+	}
+}
+
+func generateFilter(id, predicate string, jsonValue []byte) string {
+	filter := fmt.Sprintf("eq(%s, %s)", predicate, jsonValue)
+	if isUID(id) {
+		// if update make sure not unique checking the current node
+		filter = fmt.Sprintf("NOT uid(%s) AND %s", id, filter)
+	}
+	return filter
+}
+
+// isUpsertField checks if the predicate is an upsert field specified by the user,
+// when upsertFields is empty, any unique field can be upserted
+func (m *mutation) isUpsertField(predicate string) bool {
+	return len(m.upsertFields) == 0 || m.upsertFields.Has(predicate)
+}
+
+func (m *mutation) generateQuery(id string, nodeType string, schemaIndex int, schema *Schema, value interface{}) (query string, uidListIndex string, err error) {
+	queryIndex := fmt.Sprintf("q_%s_%d", id, schemaIndex)
+	uidListIndex = fmt.Sprintf("u_%s_%d", id, schemaIndex)
+
+	jsonValue, err := json.Marshal(value)
+	if err != nil {
+		return "", "", errors.Wrapf(err, "marshal %v", value)
+	}
+
+	filter := generateFilter(id, schema.Predicate, jsonValue)
+
+	queryFields := fmt.Sprintf("%s as uid", uidListIndex)
+	createOrGet := m.opcode == mutationMutateOrGet && m.isUpsertField(schema.Predicate)
+	if createOrGet {
+		queryFields = fmt.Sprintf("%s\nexpand(_all_)", queryFields)
+	}
+
+	query = fmt.Sprintf("\t%s(func: type(%s), first: 1) @filter(%s) {\n\t\t%s\n\t}", queryIndex, nodeType, filter, queryFields)
+
+	return query, uidListIndex, nil
+}
+
+func (m *mutation) updateToUIDFunc(v reflect.Value, nodeValue reflect.Value, id, uidListIndex string, uidIndex int) {
+	uidFunc := fmt.Sprintf("uid(%s)", uidListIndex)
+	// update uid value to uid func
+	nodeValue.Field(uidIndex).SetString(uidFunc)
+	v.Field(uidIndex).SetString(uidFunc)
+	// update node cache to use uid func instead of uid alias
+	m.nodeCache[uidFunc] = v
+	delete(m.nodeCache, id)
+
+	m.setRefsToUIDFunc(id, uidFunc)
+}
+
 func (m *mutation) generateMutation(v reflect.Value) error {
 	var (
 		queries    []string
@@ -240,67 +314,20 @@ func (m *mutation) generateMutation(v reflect.Value) error {
 		}
 
 		// copy values to prevent mutating original data when setting edges
-		switch schema.Type {
-		case "[uid]":
-			edgesPlaceholder := reflect.MakeSlice(field.Type(), field.Len(), field.Cap())
-			edgesField := nodeValue.Field(schemaIndex)
-			edgesField.Set(edgesPlaceholder)
-			for i := 0; i < field.Len(); i++ {
-				setEdgeUID(edgesField.Index(i), field.Index(i))
-				if m.opcode == mutationUpsert {
-					m.addToRefMap(edgesField.Index(i))
-				}
-			}
-		case "uid":
-			edge := nodeValue.Field(schemaIndex)
-			setEdgeUID(edge, field)
-			if m.opcode == mutationUpsert {
-				m.addToRefMap(edge)
-			}
-		default:
-			if field.CanSet() {
-				nodeValue.Field(schemaIndex).Set(field)
-			}
-		}
-
-		queryIndex := fmt.Sprintf("q_%s_%d", id, schemaIndex)
-		uidListIndex := fmt.Sprintf("u_%s_%d", id, schemaIndex)
-		// check if current predicate is an upsert field specified by the user,
-		// when upsertFields is empty, any unique field can be upserted
-		isUpsertField := len(m.upsertFields) == 0 || m.upsertFields.Has(schema.Predicate)
+		m.copyNodeValues(nodeValue, field, schema, schemaIndex)
 
 		if schema.Unique && uniqueCheck {
-			jsonValue, err := json.Marshal(value)
+			query, uidListIndex, err := m.generateQuery(id, mutateType.nodeType, schemaIndex, schema, value)
 			if err != nil {
-				return errors.Wrapf(err, "marshal %v", value)
+				return errors.Wrapf(err, "generate query on %s field failed", schema.Predicate)
 			}
 
-			filter := fmt.Sprintf("eq(%s, %s)", schema.Predicate, jsonValue)
-			if isUID(id) {
-				// if update make sure not unique checking the current node
-				filter = fmt.Sprintf("NOT uid(%s) AND %s", id, filter)
-			}
-
-			queryFields := fmt.Sprintf("%s as uid", uidListIndex)
-			createOrGet := m.opcode == mutationMutateOrGet && isUpsertField
-			if createOrGet {
-				queryFields = fmt.Sprintf("%s\nexpand(_all_)", queryFields)
-			}
-
-			queries = append(queries, fmt.Sprintf("\t%s(func: type(%s), first: 1) @filter(%s) {\n\t\t%s\n\t}", queryIndex, mutateType.nodeType, filter, queryFields))
+			queries = append(queries, query)
 
 			// if upsert, allow mutation to continue, don't include condition to skip mutation
-			upsert := m.opcode == mutationUpsert && isUpsertField
+			upsert := m.opcode == mutationUpsert && m.isUpsertField(schema.Predicate)
 			if upsert {
-				uidFunc := fmt.Sprintf("uid(%s)", uidListIndex)
-				// update uid value to uid func
-				nodeValue.Field(mutateType.uidIndex).SetString(uidFunc)
-				v.Field(mutateType.uidIndex).SetString(uidFunc)
-				// update node cache to use uid func instead of uid alias
-				m.nodeCache[uidFunc] = v
-				delete(m.nodeCache, id)
-
-				m.setRefsToUIDFunc(id, uidFunc)
+				m.updateToUIDFunc(v, nodeValue, id, uidListIndex, mutateType.uidIndex)
 				// don't continue unique checking on other fields, because uid can only be set once
 				uniqueCheck = false
 				continue
