@@ -36,12 +36,12 @@ type TestUser struct {
 }
 
 type TestSchool struct {
-	UID        string       `json:"uid,omitempty"`
-	Name       string       `json:"name,omitempty"`
-	Identifier string       `json:"identifier,omitempty" dgraph:"index=term unique"`
-	EstYear    int          `json:"estYear,omitempty"`
-	Location   TestLocation `json:"location,omitempty"`
-	DType      []string     `json:"dgraph.type,omitempty"`
+	UID        string        `json:"uid,omitempty"`
+	Name       string        `json:"name,omitempty"`
+	Identifier string        `json:"identifier,omitempty" dgraph:"index=term unique"`
+	EstYear    int           `json:"estYear,omitempty"`
+	Location   *TestLocation `json:"location,omitempty"`
+	DType      []string      `json:"dgraph.type,omitempty"`
 }
 
 type TestSchoolList []TestSchool
@@ -68,7 +68,7 @@ func createTestUser() TestUser {
 		School: &TestSchool{
 			Name:       "BSS",
 			Identifier: "bss",
-			Location: TestLocation{
+			Location: &TestLocation{
 				LocationID: "Malang",
 			},
 			EstYear: 1231,
@@ -77,7 +77,7 @@ func createTestUser() TestUser {
 			{
 				Name:       "lab",
 				Identifier: "lab",
-				Location: TestLocation{
+				Location: &TestLocation{
 					LocationID: "Malangian",
 				},
 				EstYear: 3131,
@@ -87,7 +87,7 @@ func createTestUser() TestUser {
 			{
 				Name:       "Kensington",
 				Identifier: "kensington",
-				Location: TestLocation{
+				Location: &TestLocation{
 					LocationID: "perth",
 				},
 				EstYear: 1234,
@@ -95,7 +95,7 @@ func createTestUser() TestUser {
 			{
 				Name:       "Harvard",
 				Identifier: "harvard",
-				Location: TestLocation{
+				Location: &TestLocation{
 					LocationID: "New York",
 				},
 				EstYear: 2013,
@@ -146,7 +146,8 @@ func TestMutationMutate(t *testing.T) {
 	tx = NewTxn(c).CommitNow()
 	user = createTestUser()
 
-	_, err = tx.Mutate(&user)
+	uids, err = tx.Mutate(&user)
+	assert.Len(t, uids, 0)
 	assert.IsType(t, &UniqueError{}, err, err.Error())
 }
 
@@ -223,6 +224,171 @@ func TestMutationMutateOrGet(t *testing.T) {
 
 	assert.Len(t, uids, 0)
 	assert.Equal(t, user1, user2)
+
+	tx = NewReadOnlyTxn(c)
+
+	var user TestUser
+	err = tx.Get(&user).UID(user2.UID).All(3).Node()
+	require.NoError(t, err)
+
+	sortByUID := ByUID{TestSchoolList: user.Schools}
+	sort.Sort(sortByUID)
+
+	sortByUID = ByUID{TestSchoolList: user2.Schools}
+	sort.Sort(sortByUID)
+
+	assert.Equal(t, user2, user)
+}
+
+func TestMutationMutateOrGetNested(t *testing.T) {
+	c := newDgraphClient()
+
+	_, err := CreateSchema(c, TestUser{})
+	if err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	tx := NewTxn(c).CommitNow()
+	user1 := TestUser{
+		Name:     "wildan ms",
+		Username: "wildan2711",
+		Email:    "wildan2711@gmail.com",
+		School: &TestSchool{
+			Name:       "Harvard University",
+			Identifier: "harvard",
+		},
+	}
+
+	uids, err := tx.MutateOrGet(&user1)
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, uids, 2)
+
+	// create
+	tx = NewTxn(c).CommitNow()
+	user2 := TestUser{
+		Name:     "wildan ms",
+		Username: "wildancok2711",
+		Email:    "wildancok2711@gmail.com",
+		School: &TestSchool{
+			Name:       "Harvard Uni",
+			Identifier: "harvard",
+		},
+	}
+	uids, err = tx.MutateOrGet(&user2)
+	require.NoError(t, err)
+
+	assert.Len(t, uids, 1)
+	assert.Equal(t, user1.School, user2.School)
+
+	tx = NewReadOnlyTxn(c)
+
+	var user TestUser
+	err = tx.Get(&user).UID(user2.UID).All(2).Node()
+	require.NoError(t, err)
+
+	assert.Equal(t, user2, user)
+}
+
+func TestMutationMutateOrGetMultipleUnique(t *testing.T) {
+	c := newDgraphClient()
+
+	_, err := CreateSchema(c, TestUser{})
+	if err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	tx := NewTxn(c).CommitNow()
+	user1 := TestUser{
+		Name:     "wildan ms",
+		Username: "wildan2711",
+		Email:    "wildan2711@gmail.com",
+		School: &TestSchool{
+			Name:       "Harvard University",
+			Identifier: "harvard",
+		},
+	}
+
+	uids, err := tx.MutateOrGet(&user1)
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, uids, 2)
+
+	// will get existing node
+	tx = NewTxn(c).CommitNow()
+	user2 := TestUser{
+		Name:     "wildan ms",
+		Username: "wildan2711",
+		Email:    "wildancok2711@gmail.com",
+		School: &TestSchool{
+			Name:       "Kensington",
+			Identifier: "kensington",
+		},
+	}
+	uids, err = tx.MutateOrGet(&user2)
+	require.NoError(t, err)
+
+	assert.Len(t, uids, 0)
+	assert.Equal(t, user1, user2)
+
+	tx = NewReadOnlyTxn(c)
+
+	var user TestUser
+	err = tx.Get(&user).UID(user2.UID).All(2).Node()
+	require.NoError(t, err)
+
+	assert.Equal(t, user2, user)
+}
+
+func TestMutationMutateOrGetMultipleUniqueNested(t *testing.T) {
+	c := newDgraphClient()
+
+	_, err := CreateSchema(c, TestUser{})
+	if err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	tx := NewTxn(c).CommitNow()
+	user1 := TestUser{
+		Name:     "wildan ms",
+		Username: "wildan2711",
+		Email:    "wildan2711@gmail.com",
+		School: &TestSchool{
+			Name:       "Harvard University",
+			Identifier: "harvard",
+		},
+	}
+
+	uids, err := tx.MutateOrGet(&user1)
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, uids, 2)
+
+	// create
+	tx = NewTxn(c).CommitNow()
+	user2 := TestUser{
+		Name:     "wildan ms",
+		Username: "wildancok2711",
+		Email:    "wildancok2711@gmail.com",
+		School: &TestSchool{
+			Name:       "Harvard uni",
+			Identifier: "harvard",
+		},
+	}
+	uids, err = tx.MutateOrGet(&user2)
+	require.NoError(t, err)
+
+	assert.Len(t, uids, 1)
+	assert.Equal(t, user1.School, user2.School)
 }
 
 func TestMutationUpsert(t *testing.T) {
@@ -249,12 +415,13 @@ func TestMutationUpsert(t *testing.T) {
 	tx = NewTxn(c).CommitNow()
 	user2 := createTestUser()
 	user2.Name = "Changed man"
+	user2.Email = "wildancok2711@gmail.com"
 	user2.School.Name = "Changed School"
 	user2.Schools[0].Name = "Changed School 0"
 	user2.Schools[1].Name = "Changed School 1"
 	user2.SchoolsPtr[0].Name = "Changed School Ptr 1"
 
-	uids2, err := tx.Upsert(&user2)
+	uids2, err := tx.Upsert(&user2, "username")
 	require.NoError(t, err)
 
 	assert.Len(t, uids2, 0)
@@ -272,10 +439,45 @@ func TestMutationUpsert(t *testing.T) {
 	assert.Equal(t, user2, updatedUser)
 }
 
+func TestMutationUpsert_UniqueError(t *testing.T) {
+	c := newDgraphClient()
+
+	_, err := CreateSchema(c, TestUser{})
+	if err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	tx := NewTxn(c).CommitNow()
+	user1 := createTestUser()
+
+	uids1, err := tx.Upsert(&user1)
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, uids1, 9)
+
+	// try to create similar nodes from user1, but modified fields on non-unique fields
+	// should not create any nodes, but return unique error
+	tx = NewTxn(c).CommitNow()
+	user2 := createTestUser()
+	user2.Name = "Changed man"
+	user2.School.Name = "Changed School"
+	user2.Schools[0].Name = "Changed School 0"
+	user2.Schools[1].Name = "Changed School 1"
+	user2.SchoolsPtr[0].Name = "Changed School Ptr 1"
+
+	uids2, err := tx.Upsert(&user2)
+
+	assert.IsType(t, &UniqueError{}, err)
+	assert.Len(t, uids2, 0)
+}
+
 func TestSetTypes(t *testing.T) {
 	user := TestUser{
 		School: &TestSchool{
-			Location: TestLocation{},
+			Location: &TestLocation{},
 		},
 	}
 

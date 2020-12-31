@@ -252,10 +252,7 @@ func (q *Query) UID(uid string) *Query {
 	return q
 }
 
-func expandPredicate(depth int) string {
-	var buffer strings.Builder
-
-	buffer.WriteString("{\n\t\tuid\n\t\tdgraph.type\n\t\texpand(_all_)")
+func expandPredicate(buffer *strings.Builder, depth int) {
 	for i := 0; i < depth; i++ {
 		tabs := strings.Repeat("\t", i+1)
 		buffer.WriteString(" {\n\t\t")
@@ -272,6 +269,13 @@ func expandPredicate(depth int) string {
 		buffer.WriteString(tabs)
 		buffer.WriteString("}")
 	}
+}
+
+func expandAll(depth int) string {
+	var buffer strings.Builder
+
+	buffer.WriteString("{\n\t\tuid\n\t\tdgraph.type\n\t\texpand(_all_)")
+	expandPredicate(&buffer, depth)
 	buffer.WriteString("\n\t}")
 
 	return buffer.String()
@@ -285,7 +289,7 @@ func (q *Query) All(depthParam ...int) *Query {
 		depth = depthParam[0]
 	}
 
-	q.query = expandPredicate(depth)
+	q.query = expandAll(depth)
 	return q
 }
 

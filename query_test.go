@@ -456,7 +456,7 @@ func TestGetNodesAndCount(t *testing.T) {
 	assert.Equal(t, 5, count)
 }
 
-func TestExpandPredicate(t *testing.T) {
+func TestExpandAll(t *testing.T) {
 	expectedDepthZero := `{
 		uid
 		dgraph.type
@@ -487,9 +487,9 @@ func TestExpandPredicate(t *testing.T) {
 		}
 	}`
 
-	assert.Equal(t, expectedDepthZero, expandPredicate(0))
-	assert.Equal(t, expectedDepthOne, expandPredicate(1))
-	assert.Equal(t, expectedDepthTwo, expandPredicate(2))
+	assert.Equal(t, expectedDepthZero, expandAll(0))
+	assert.Equal(t, expectedDepthOne, expandAll(1))
+	assert.Equal(t, expectedDepthTwo, expandAll(2))
 }
 
 func Test_parseQueryWithParams(t *testing.T) {
