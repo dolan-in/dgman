@@ -305,10 +305,8 @@ func (m *mutation) updateToUIDFunc(v reflect.Value, nodeValue reflect.Value, id,
 	v.Field(uidIndex).SetString(uidFunc)
 	// update node cache to use uid func instead of uid alias
 	m.nodeCache[uidFunc] = v
-	delete(m.nodeCache, id)
 	// update parent uid
 	m.parentUids[uidFunc] = m.parentUids[id]
-	delete(m.parentUids, id)
 
 	m.setRefsToUIDFunc(id, uidFunc)
 
@@ -363,7 +361,6 @@ func (m *mutation) generateMutation(v reflect.Value, level int) error {
 			isAddCondition := m.opcode != mutationUpsert || !isUIDFuncField
 			if isAddCondition {
 				conditions = append(conditions, fmt.Sprintf("eq(len(%s), 0)", uidListIndex))
-				m.conditions[idFunc] = conditions
 			}
 		}
 	}
@@ -371,6 +368,7 @@ func (m *mutation) generateMutation(v reflect.Value, level int) error {
 	// add parent conditions to prevent orphaned child nodes
 	parentConditions := m.conditions[m.parentUids[idFunc]]
 	conditions = append(parentConditions, conditions...)
+	m.conditions[idFunc] = conditions
 
 	m.mutations = append([]preparedMutation{{
 		conditions: conditions,
@@ -444,9 +442,14 @@ func (m *mutation) processJSONResponse(resp []byte) error {
 				}
 			}
 		case mutationMutateOrGet:
-			if len(m.upsertFields) > 0 && !m.upsertFields.Has(schema.Predicate) {
-				// not the specified field, skip
-				continue
+			parent := m.nodeCache[m.parentUids[id[2:]]]
+			if parent.IsValid() {
+				parentType := m.typeCache[parent.Type().String()]
+				parentID := parentType.getID(parent)
+				if isUID(parentID) {
+					// if parent is already set from query, don't unmarshal this query
+					continue
+				}
 			}
 
 			if err := json.Unmarshal(msg[0], nodeValue.Addr().Interface()); err != nil {
@@ -531,7 +534,7 @@ func (h generateSchemaHook) Struct(v reflect.Value, level int) error {
 	return nil
 }
 
-func (h generateSchemaHook) StructField(field reflect.StructField, v, p reflect.Value, level int) error {
+func (h generateSchemaHook) StructField(p reflect.Value, field reflect.StructField, v reflect.Value, level int) error {
 	pType := p.Type()
 	nodeType := pType.Name()
 	mutateType, ok := h.mutation.typeCache[pType.String()]
@@ -603,7 +606,7 @@ func (h generateMutationHook) Struct(v reflect.Value, level int) error {
 	return h.mutation.generateMutation(v, level)
 }
 
-func (h generateMutationHook) StructField(f reflect.StructField, v, p reflect.Value, level int) error {
+func (h generateMutationHook) StructField(s reflect.Value, f reflect.StructField, v reflect.Value, level int) error {
 	return nil
 }
 
@@ -616,7 +619,7 @@ func (h setUIDHook) Struct(v reflect.Value, level int) error {
 	return nil
 }
 
-func (h setUIDHook) StructField(f reflect.StructField, v, p reflect.Value, level int) error {
+func (h setUIDHook) StructField(s reflect.Value, f reflect.StructField, v reflect.Value, level int) error {
 	err := setUIDs(f, v, h.resp.Uids)
 	if err != nil {
 		return errors.Wrap(err, "set UIDs failed")
@@ -675,6 +678,6 @@ func (w typeWalker) Struct(v reflect.Value, level int) error {
 	return nil
 }
 
-func (w typeWalker) StructField(f reflect.StructField, v, p reflect.Value, level int) error {
+func (w typeWalker) StructField(s reflect.Value, f reflect.StructField, v reflect.Value, level int) error {
 	return nil
 }
