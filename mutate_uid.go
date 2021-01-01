@@ -21,7 +21,7 @@ import (
 	"reflect"
 	"sync/atomic"
 
-	"github.com/mitchellh/reflectwalk"
+	"github.com/dolan-in/reflectwalk"
 )
 
 // overflow is OK
@@ -63,22 +63,26 @@ func setUIDs(f reflect.StructField, v reflect.Value, uids map[string]string) err
 	predicate := getPredicate(&f)
 	setUID := v.String()
 
-	if predicate == "uid" {
-		if !v.CanSet() {
-			return fmt.Errorf("cannot set %s/%s", predicate, setUID)
+	if predicate != "uid" {
+		return nil
+	}
+
+	if !v.CanSet() {
+		return fmt.Errorf("cannot set %s/%s", predicate, setUID)
+	}
+
+	if isUIDAlias(setUID) {
+		uid, ok := uids[setUID[2:]]
+		if ok {
+			v.SetString(uid)
 		}
-		if isUIDAlias(setUID) {
-			uid, ok := uids[setUID[2:]]
-			if ok {
-				v.SetString(uid)
-			}
-		} else if isUIDFunc(setUID) {
-			uid, ok := uids[setUID]
-			if ok {
-				v.SetString(uid)
-			}
+	} else if isUIDFunc(setUID) {
+		uid, ok := uids[setUID]
+		if ok {
+			v.SetString(uid)
 		}
 	}
+
 	return nil
 }
 
@@ -94,10 +98,10 @@ type setUIDWalker struct {
 	uids map[string]string
 }
 
-func (w setUIDWalker) Struct(v reflect.Value) error {
+func (w setUIDWalker) Struct(v reflect.Value, level int) error {
 	return nil
 }
 
-func (w setUIDWalker) StructField(f reflect.StructField, v reflect.Value) error {
+func (w setUIDWalker) StructField(f reflect.StructField, v, p reflect.Value, level int) error {
 	return setUIDs(f, v, w.uids)
 }

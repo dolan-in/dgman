@@ -34,6 +34,9 @@ const (
 	tagName             = "dgraph"
 	predicateDgraphType = "dgraph.type"
 	predicateUid        = "uid"
+
+	schemaUid     = "uid"
+	schemaUidList = "[uid]"
 )
 
 type rawSchema struct {
