@@ -222,6 +222,12 @@ func TestMutationMutateOrGet(t *testing.T) {
 	uids, err = tx.MutateOrGet(&user2)
 	require.NoError(t, err)
 
+	sortByUID := ByUID{TestSchoolList: user1.Schools}
+	sort.Sort(sortByUID)
+
+	sortByUID = ByUID{TestSchoolList: user2.Schools}
+	sort.Sort(sortByUID)
+
 	assert.Len(t, uids, 0)
 	assert.Equal(t, user1, user2)
 
@@ -231,10 +237,7 @@ func TestMutationMutateOrGet(t *testing.T) {
 	err = tx.Get(&user).UID(user2.UID).All(3).Node()
 	require.NoError(t, err)
 
-	sortByUID := ByUID{TestSchoolList: user.Schools}
-	sort.Sort(sortByUID)
-
-	sortByUID = ByUID{TestSchoolList: user2.Schools}
+	sortByUID = ByUID{TestSchoolList: user.Schools}
 	sort.Sort(sortByUID)
 
 	assert.Equal(t, user2, user)
