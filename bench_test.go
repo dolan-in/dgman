@@ -30,7 +30,7 @@ func BenchmarkMutateBasic(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		data := createFlatStruct()
 
-		tx := NewTxn(c).CommitNow()
+		tx := NewTxn(c).SetCommitNow()
 		tx.MutateBasic(&data)
 	}
 }
@@ -43,7 +43,7 @@ func BenchmarkMutate(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		data := createTestUser()
 
-		tx := NewTxn(c).CommitNow()
+		tx := NewTxn(c).SetCommitNow()
 		tx.Mutate(&data)
 	}
 }
@@ -56,7 +56,7 @@ func BenchmarkMutateBasicNested(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		data := createTestUser()
 
-		tx := NewTxn(c).CommitNow()
+		tx := NewTxn(c).SetCommitNow()
 		tx.MutateBasic(&data)
 	}
 }
@@ -69,7 +69,7 @@ func BenchmarkMutateNested(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		data := createTestUser()
 
-		tx := NewTxn(c).CommitNow()
+		tx := NewTxn(c).SetCommitNow()
 		tx.Mutate(&data)
 	}
 }

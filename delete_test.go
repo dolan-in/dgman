@@ -16,7 +16,7 @@ func TestDelete(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	tx := NewTxn(c).CommitNow()
+	tx := NewTxn(c).SetCommitNow()
 	user := createTestUser()
 
 	uids, err := tx.Mutate(&user)
@@ -26,7 +26,7 @@ func TestDelete(t *testing.T) {
 
 	assert.Len(t, uids, 9)
 
-	tx = NewTxn(c).CommitNow()
+	tx = NewTxn(c).SetCommitNow()
 	err = tx.Delete(&DeleteParams{
 		Nodes: []DeleteNode{
 			// delete the edge
@@ -71,7 +71,7 @@ func TestDelete(t *testing.T) {
 	assert.Equal(t, user, updatedUser)
 
 	// delete all school edges
-	tx = NewTxn(c).CommitNow()
+	tx = NewTxn(c).SetCommitNow()
 	err = tx.Delete(&DeleteParams{
 		Nodes: []DeleteNode{
 			// delete the edge
@@ -112,7 +112,7 @@ func TestDeleteQuery(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	tx := NewTxn(c).CommitNow()
+	tx := NewTxn(c).SetCommitNow()
 	user := createTestUser()
 
 	uids, err := tx.Mutate(&user)
@@ -124,7 +124,7 @@ func TestDeleteQuery(t *testing.T) {
 
 	queryUser := TestUser{}
 
-	tx = NewTxn(c).CommitNow()
+	tx = NewTxn(c).SetCommitNow()
 	query := NewQueryBlock(NewQuery().
 		Model(&queryUser).
 		UID(user.UID).
@@ -193,7 +193,7 @@ func TestDeleteQueryCond(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	tx := NewTxn(c).CommitNow()
+	tx := NewTxn(c).SetCommitNow()
 	user := createTestUser()
 
 	uids, err := tx.Mutate(&user)
@@ -205,7 +205,7 @@ func TestDeleteQueryCond(t *testing.T) {
 
 	queryUser := TestUser{}
 
-	tx = NewTxn(c).CommitNow()
+	tx = NewTxn(c).SetCommitNow()
 	query := NewQueryBlock(NewQuery().
 		Model(&queryUser).
 		UID(user.UID).
@@ -257,7 +257,7 @@ func TestDeleteQueryCondUidFunc(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	tx := NewTxn(c).CommitNow()
+	tx := NewTxn(c).SetCommitNow()
 	user := createTestUser()
 
 	uids, err := tx.Mutate(&user)
@@ -280,7 +280,7 @@ func TestDeleteQueryCondUidFunc(t *testing.T) {
 
 	queryUser := TestUser{}
 
-	tx = NewTxn(c).CommitNow()
+	tx = NewTxn(c).SetCommitNow()
 	query := NewQueryBlock(NewQuery().
 		Model(&queryUser).
 		UID(user.UID).
@@ -311,7 +311,7 @@ func TestDeleteQueryCondUidFunc(t *testing.T) {
 
 	assert.Len(t, queryUser.Schools, 2)
 
-	tx = NewTxn(c).CommitNow()
+	tx = NewTxn(c).SetCommitNow()
 	if err = tx.DeleteEdge(user.UID, "schools"); err != nil {
 		t.Error(err)
 	}
@@ -341,7 +341,7 @@ func TestDeleteNode(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	tx := NewTxn(c).CommitNow()
+	tx := NewTxn(c).SetCommitNow()
 	user := createTestUser()
 
 	uids, err := tx.Mutate(&user)
@@ -351,7 +351,7 @@ func TestDeleteNode(t *testing.T) {
 
 	assert.Len(t, uids, 9)
 
-	tx = NewTxn(c).CommitNow()
+	tx = NewTxn(c).SetCommitNow()
 	if err = tx.DeleteNode(user.UID); err != nil {
 		t.Error(err)
 	}
@@ -376,7 +376,7 @@ func TestDeleteEdge(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	tx := NewTxn(c).CommitNow()
+	tx := NewTxn(c).SetCommitNow()
 	user := createTestUser()
 
 	uids, err := tx.Mutate(&user)
@@ -386,7 +386,7 @@ func TestDeleteEdge(t *testing.T) {
 
 	assert.Len(t, uids, 9)
 
-	tx = NewTxn(c).CommitNow()
+	tx = NewTxn(c).SetCommitNow()
 	if err = tx.DeleteEdge(user.UID, "schools", user.Schools[0].UID); err != nil {
 		t.Error(err)
 	}

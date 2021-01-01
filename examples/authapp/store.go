@@ -44,7 +44,7 @@ type userStore struct {
 }
 
 func (s *userStore) Create(ctx context.Context, user *User) error {
-	_, err := dgman.NewTxnContext(ctx, s.c).CommitNow().Mutate(user)
+	_, err := dgman.NewTxnContext(ctx, s.c).SetCommitNow().Mutate(user)
 	if err != nil {
 		if uniqueErr, ok := err.(*dgman.UniqueError); ok {
 			if uniqueErr.Field == "email" {

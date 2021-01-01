@@ -54,7 +54,7 @@ func TestGetByUID(t *testing.T) {
 		t.Error(err)
 	}
 
-	tx := NewTxn(c).CommitNow()
+	tx := NewTxn(c).SetCommitNow()
 
 	_, err = tx.Mutate(source)
 	if err != nil {
@@ -86,7 +86,7 @@ func TestGetByFilter(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	tx := NewTxn(c).CommitNow()
+	tx := NewTxn(c).SetCommitNow()
 
 	_, err := tx.Mutate(source)
 	if err != nil {
@@ -228,7 +228,7 @@ func TestGetAllWithDepth(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	tx := NewTxn(c).CommitNow()
+	tx := NewTxn(c).SetCommitNow()
 
 	uids, err := tx.Mutate(&source)
 	if err != nil {
@@ -385,7 +385,7 @@ func TestQueryBlock(t *testing.T) {
 		})
 	}
 
-	tx := NewTxn(c).CommitNow()
+	tx := NewTxn(c).SetCommitNow()
 	if _, err := tx.Mutate(&models); err != nil {
 		t.Error(err)
 		return
@@ -438,7 +438,7 @@ func TestGetNodesAndCount(t *testing.T) {
 		})
 	}
 
-	tx := NewTxn(c).CommitNow()
+	tx := NewTxn(c).SetCommitNow()
 	if _, err := tx.Mutate(&models); err != nil {
 		t.Error(err)
 		return

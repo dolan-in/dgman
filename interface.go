@@ -25,7 +25,7 @@ import (
 type TxnInterface interface {
 	Commit() error
 	Discard() error
-	CommitNow() *TxnContext
+	SetCommitNow() *TxnContext
 	BestEffort() *TxnContext
 	Txn() *dgo.Txn
 	WithContext(context.Context)
@@ -46,5 +46,5 @@ type SchemaType interface {
 }
 
 var (
-	_ TxnInterface = (*TxnContext)(nil)
+// _ TxnInterface = (*TxnContext)(nil)
 )

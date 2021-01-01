@@ -60,12 +60,12 @@ func (t *TxnContext) Context() context.Context {
 	return t.ctx
 }
 
-// CommitNow specifies whether to commit as soon as a mutation is called,
+// SetCommitNow specifies whether to commit as soon as a mutation is called,
 //
-// i.e: set CommitNow: true in dgo.api.Mutation.
+// i.e: set SetCommitNow: true in dgo.api.Mutation.
 //
 // If this is called, a transaction can only be used for a single mutation.
-func (t *TxnContext) CommitNow() *TxnContext {
+func (t *TxnContext) SetCommitNow() *TxnContext {
 	t.commitNow = true
 	return t
 }

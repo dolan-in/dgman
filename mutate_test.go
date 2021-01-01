@@ -113,7 +113,7 @@ func TestMutationMutateBasic(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	tx := NewTxn(c).CommitNow()
+	tx := NewTxn(c).SetCommitNow()
 	user := createTestUser()
 
 	uids, err := tx.MutateBasic(&user)
@@ -133,7 +133,7 @@ func TestMutationMutate(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	tx := NewTxn(c).CommitNow()
+	tx := NewTxn(c).SetCommitNow()
 	user := createTestUser()
 
 	uids, err := tx.Mutate(&user)
@@ -143,7 +143,7 @@ func TestMutationMutate(t *testing.T) {
 
 	assert.Len(t, uids, 9)
 
-	tx = NewTxn(c).CommitNow()
+	tx = NewTxn(c).SetCommitNow()
 	user = createTestUser()
 
 	uids, err = tx.Mutate(&user)
@@ -160,7 +160,7 @@ func TestMutationUpdate(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	tx := NewTxn(c).CommitNow()
+	tx := NewTxn(c).SetCommitNow()
 	user := createTestUser()
 
 	uids1, err := tx.Mutate(&user)
@@ -171,7 +171,7 @@ func TestMutationUpdate(t *testing.T) {
 	assert.Len(t, uids1, 9)
 
 	// Update the fields, after uid has been injected after insert
-	tx = NewTxn(c).CommitNow()
+	tx = NewTxn(c).SetCommitNow()
 	user.Name = "Changed man"
 	user.School.Name = "Changed School"
 	user.Schools[0].Name = "Changed School 0"
@@ -205,7 +205,7 @@ func TestMutationMutateOrGet(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	tx := NewTxn(c).CommitNow()
+	tx := NewTxn(c).SetCommitNow()
 	user1 := createTestUser()
 
 	uids, err := tx.MutateOrGet(&user1)
@@ -217,7 +217,7 @@ func TestMutationMutateOrGet(t *testing.T) {
 
 	// try to create identical nodes from user1
 	// should not create any nodes, but return existing nodes
-	tx = NewTxn(c).CommitNow()
+	tx = NewTxn(c).SetCommitNow()
 	user2 := createTestUser()
 	uids, err = tx.MutateOrGet(&user2)
 	require.NoError(t, err)
@@ -249,7 +249,7 @@ func TestMutationMutateOrGetNested(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	tx := NewTxn(c).CommitNow()
+	tx := NewTxn(c).SetCommitNow()
 	user1 := TestUser{
 		Name:     "wildan ms",
 		Username: "wildan2711",
@@ -268,7 +268,7 @@ func TestMutationMutateOrGetNested(t *testing.T) {
 	assert.Len(t, uids, 2)
 
 	// create
-	tx = NewTxn(c).CommitNow()
+	tx = NewTxn(c).SetCommitNow()
 	user2 := TestUser{
 		Name:     "wildan ms",
 		Username: "wildancok2711",
@@ -302,7 +302,7 @@ func TestMutationMutateOrGetMultipleUnique(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	tx := NewTxn(c).CommitNow()
+	tx := NewTxn(c).SetCommitNow()
 	user1 := TestUser{
 		Name:     "wildan ms",
 		Username: "wildan2711",
@@ -321,7 +321,7 @@ func TestMutationMutateOrGetMultipleUnique(t *testing.T) {
 	assert.Len(t, uids, 2)
 
 	// will get existing node
-	tx = NewTxn(c).CommitNow()
+	tx = NewTxn(c).SetCommitNow()
 	user2 := TestUser{
 		Name:     "wildan ms",
 		Username: "wildan2711",
@@ -355,7 +355,7 @@ func TestMutationMutateOrGetMultipleUniqueNested(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	tx := NewTxn(c).CommitNow()
+	tx := NewTxn(c).SetCommitNow()
 	user1 := TestUser{
 		Name:     "wildan ms",
 		Username: "wildan2711",
@@ -374,7 +374,7 @@ func TestMutationMutateOrGetMultipleUniqueNested(t *testing.T) {
 	assert.Len(t, uids, 2)
 
 	// create
-	tx = NewTxn(c).CommitNow()
+	tx = NewTxn(c).SetCommitNow()
 	user2 := TestUser{
 		Name:     "wildan ms",
 		Username: "wildancok2711",
@@ -400,7 +400,7 @@ func TestMutationUpsert(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	tx := NewTxn(c).CommitNow()
+	tx := NewTxn(c).SetCommitNow()
 	user1 := createTestUser()
 
 	uids1, err := tx.Upsert(&user1)
@@ -412,7 +412,7 @@ func TestMutationUpsert(t *testing.T) {
 
 	// try to create similar nodes from user1, but modified fields on non-unique fields
 	// should not create any nodes, but update existing nodes
-	tx = NewTxn(c).CommitNow()
+	tx = NewTxn(c).SetCommitNow()
 	user2 := createTestUser()
 	user2.Name = "Changed man"
 	user2.Email = "wildancok2711@gmail.com"
@@ -448,7 +448,7 @@ func TestMutationUpsert_UniqueError(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	tx := NewTxn(c).CommitNow()
+	tx := NewTxn(c).SetCommitNow()
 	user1 := createTestUser()
 
 	uids1, err := tx.Upsert(&user1)
@@ -460,7 +460,7 @@ func TestMutationUpsert_UniqueError(t *testing.T) {
 
 	// try to create similar nodes from user1, but modified fields on non-unique fields
 	// should not create any nodes, but return unique error
-	tx = NewTxn(c).CommitNow()
+	tx = NewTxn(c).SetCommitNow()
 	user2 := createTestUser()
 	user2.Name = "Changed man"
 	user2.School.Name = "Changed School"
