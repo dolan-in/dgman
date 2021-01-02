@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Dolan and Contributors
+ * Copyright (C) 2020 Dolan and Contributors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,202 +18,175 @@ package dgman
 
 import (
 	"bytes"
-	"context"
 
 	"github.com/dgraph-io/dgo/v200/protos/api"
-
-	"github.com/dgraph-io/dgo/v200"
 	"github.com/pkg/errors"
 )
 
-type Deleter struct {
-	ctx       context.Context
-	tx        *dgo.Txn
-	model     interface{}
-	q         *Query
-	commitNow bool
+type DeleteQuery struct {
+	query  *QueryBlock
+	result []byte
 }
 
-// Query defines the query portion other than the root function for deletion
-func (d *Deleter) Query(query string, params ...interface{}) *Deleter {
-	d.q.query = parseQueryWithParams(query, params)
-	return d
+// Scan will unmarshal the delete query result into the passed interface{},
+// if nothing is passed, it will be unmarshaled to the individual query models.
+func (d *DeleteQuery) Scan(dst ...interface{}) error {
+	return d.query.scan(d.result, dst...)
 }
 
-// Filter defines a query filter, return predicates at the first depth
-func (d *Deleter) Filter(filter string, params ...interface{}) *Deleter {
-	d.q.filter = parseQueryWithParams(filter, params)
-	return d
+// DeleteParams is a struct to past delete parameters
+type DeleteParams struct {
+	Cond  string
+	Nodes []DeleteNode
 }
 
-// UID returns the node with the specified uid
-func (d *Deleter) UID(uid string) *Deleter {
-	d.q.uid = uid
-	return d
+// DeleteNode is a struct to build delete node n-quads
+type DeleteNode struct {
+	UID   string
+	Edges []DeleteEdge
 }
 
-// All returns expands all predicates, with a depth parameter that specifies
-// how deep should edges be expanded
-func (d *Deleter) All(depthParam ...int) *Deleter {
-	d.q.All(depthParam...)
-	return d
-}
-
-// Vars specify the GraphQL variables to be passed on the query,
-// by specifying the function definition of vars, and variable map.
-// Example funcDef: getUserByEmail($email: string, $age: number)
-func (d *Deleter) Vars(funcDef string, vars map[string]string) *Deleter {
-	d.q.paramString = funcDef
-	d.q.vars = vars
-	return d
-}
-
-// RootFunc modifies the dgraph query root function, if not set,
-// the default is "type(NodeType)"
-func (d *Deleter) RootFunc(rootFunc string) *Deleter {
-	d.q.rootFunc = rootFunc
-	return d
-}
-
-func (d *Deleter) First(n int) *Deleter {
-	d.q.first = n
-	return d
-}
-
-func (d *Deleter) Offset(n int) *Deleter {
-	d.q.offset = n
-	return d
-}
-
-func (d *Deleter) After(uid string) *Deleter {
-	d.q.after = uid
-	return d
-}
-
-func (d *Deleter) OrderAsc(clause string) *Deleter {
-	d.q.order = append(d.q.order, order{clause: clause})
-	return d
-}
-
-func (d *Deleter) OrderDesc(clause string) *Deleter {
-	d.q.order = append(d.q.order, order{descending: true, clause: clause})
-	return d
-}
-
-// Edge delete edges of a node of specified edge predicate, if no edgeUIDs specified,
-// delete all edges
-func (d *Deleter) Edge(uid, edgePredicate string, edgeUIDs ...string) error {
-	var buffer bytes.Buffer
-
-	buffer.WriteString(`{"uid": "`)
-	buffer.WriteString(uid)
-	buffer.WriteString(`", "`)
-	buffer.WriteString(edgePredicate)
-	buffer.WriteString(`": `)
-
-	if len(edgeUIDs) == 0 {
-		// if no uids specified, delete all edges
-		buffer.WriteString(`null`)
-	} else {
-		buffer.WriteByte('[')
-		for _, edgeUID := range edgeUIDs {
-			buffer.WriteString(`{"uid": "`)
-			buffer.WriteString(edgeUID)
-			buffer.WriteString(`"}`)
-		}
-		buffer.WriteByte(']')
+func (d *DeleteNode) writeTo(buffer *bytes.Buffer) {
+	if len(d.Edges) == 0 {
+		writeDeleteNode(buffer, d.UID)
+		return
 	}
 
-	buffer.WriteByte('}')
+	for _, edge := range d.Edges {
+		edge.writeTo(buffer, d.UID)
+	}
+}
 
-	_, err := d.tx.Mutate(d.ctx, &api.Mutation{DeleteJson: buffer.Bytes(), CommitNow: d.commitNow})
+type DeleteEdge struct {
+	Pred string
+	UIDs []string
+}
+
+func (d *DeleteEdge) writeTo(buffer *bytes.Buffer, uid string) {
+	if len(d.UIDs) == 0 {
+		writeDeleteAllEdges(buffer, uid, d.Pred)
+		return
+	}
+
+	for _, edgeUID := range d.UIDs {
+		writeDeleteEdge(buffer, uid, d.Pred, edgeUID)
+	}
+}
+
+func (d *TxnContext) delete(params ...*DeleteParams) error {
+	_, err := d.deleteQuery(nil, params...)
 	return err
 }
 
-// Node deletes the first single root node from the query
-// including edge nodes that may be specified on the query
-func (d *Deleter) Node() (uids []string, err error) {
-	d.q.first = 1
-
-	result, err := d.q.executeQuery()
+func (d *TxnContext) deleteQuery(query *QueryBlock, params ...*DeleteParams) (DeleteQuery, error) {
+	mutations := make([]*api.Mutation, len(params))
+	for i, param := range params {
+		var nQuads bytes.Buffer
+		for _, node := range param.Nodes {
+			node.writeTo(&nQuads)
+		}
+		mutations[i] = &api.Mutation{
+			DelNquads: nQuads.Bytes(),
+			Cond:      param.Cond,
+		}
+	}
+	req := &api.Request{
+		Mutations: mutations,
+		CommitNow: d.commitNow,
+	}
+	if query != nil {
+		req.Query = query.String()
+	}
+	resp, err := d.txn.Do(d.ctx, req)
 	if err != nil {
-		return nil, errors.Wrap(err, "exec")
+		return DeleteQuery{}, errors.Wrap(err, "request failed")
 	}
-
-	model := make(map[string]interface{})
-	if err := d.q.node(result, &model); err != nil {
-		return nil, errors.Wrap(err, "parse query")
-	}
-
-	traverseUIDs(&uids, model)
-
-	return uids, d.deleteUids(uids)
+	return DeleteQuery{
+		query:  query,
+		result: resp.Json,
+	}, nil
 }
 
-// Nodes deletes all nodes matching the delete query
-// including edge nodes that may be specified on the query
-func (d *Deleter) Nodes() (uids []string, err error) {
-	result, err := d.q.executeQuery()
-	if err != nil {
-		return nil, err
+func (d *TxnContext) deleteNode(uids ...string) error {
+	var nQuads bytes.Buffer
+	for _, uid := range uids {
+		writeDeleteNodeRDF(&nQuads, uid)
 	}
-
-	var model []map[string]interface{}
-	if err := d.q.nodes(result, &model); err != nil {
-		return nil, err
-	}
-
-	for _, m := range model {
-		traverseUIDs(&uids, m)
-	}
-
-	return uids, d.deleteUids(uids)
-}
-
-func (d *Deleter) deleteUids(uids []string) error {
-	uidsJSON := generateUidsJSON(uids)
-	_, err := d.tx.Mutate(d.ctx, &api.Mutation{
-		DeleteJson: uidsJSON,
-		CommitNow:  d.commitNow,
+	_, err := d.txn.Mutate(d.ctx, &api.Mutation{
+		DelNquads: nQuads.Bytes(),
+		CommitNow: d.commitNow,
 	})
-
 	return err
 }
 
-func generateUidsJSON(uids []string) []byte {
-	var b bytes.Buffer
-
-	b.WriteByte('[')
-	for i, uid := range uids {
-		b.WriteString(`{"uid":"`)
-		b.WriteString(uid)
-		b.WriteString(`"}`)
-
-		if i != len(uids)-1 {
-			b.WriteByte(',')
+func (d *TxnContext) deleteEdge(uid string, predicate string, edgeUIDs ...string) error {
+	var nQuads bytes.Buffer
+	if len(edgeUIDs) > 0 {
+		for _, edgeUID := range edgeUIDs {
+			writeDeleteEdgeRDF(&nQuads, uid, predicate, edgeUID)
 		}
+	} else {
+		writeDeleteAllEdgesRDF(&nQuads, uid, predicate)
 	}
-	b.WriteByte(']')
-	return b.Bytes()
+	_, err := d.txn.Mutate(d.ctx, &api.Mutation{
+		DelNquads: nQuads.Bytes(),
+		CommitNow: d.commitNow,
+	})
+	return err
 }
 
-func traverseUIDs(uids *[]string, model map[string]interface{}) {
-	for predicate, val := range model {
-		switch v := val.(type) {
-		case []interface{}:
-			for _, node := range v {
-				if v2, ok := node.(map[string]interface{}); ok {
-					traverseUIDs(uids, v2)
-				}
-			}
-		case string:
-			if predicate == "uid" {
-				*uids = append(*uids, val.(string))
-			}
-		}
-	}
+func writeDeleteNode(w *bytes.Buffer, uid string) {
+	writeUID(w, uid)
+	w.WriteString("* * .\n")
 }
 
-func (d *Deleter) String() string {
-	return d.q.String()
+func writeDeleteNodeRDF(w *bytes.Buffer, uid string) {
+	writeIRI(w, uid)
+	w.WriteString("* * .\n")
+}
+
+func writeDeleteEdge(w *bytes.Buffer, uid, predicate, edgeUID string) {
+	writeUID(w, uid)
+	writeIRI(w, predicate)
+	writeUID(w, edgeUID)
+	w.WriteString(".\n")
+}
+
+func writeDeleteEdgeRDF(w *bytes.Buffer, uid, predicate, edgeUID string) {
+	writeIRI(w, uid)
+	writeIRI(w, predicate)
+	writeIRI(w, edgeUID)
+	w.WriteString(".\n")
+}
+
+func writeDeleteAllEdges(w *bytes.Buffer, uid, predicate string) {
+	writeUID(w, uid)
+	writeIRI(w, predicate)
+	w.WriteString("* .\n")
+}
+
+func writeDeleteAllEdgesRDF(w *bytes.Buffer, uid, predicate string) {
+	writeIRI(w, uid)
+	writeIRI(w, predicate)
+	w.WriteString("* .\n")
+}
+
+func writeIRI(w *bytes.Buffer, iri string) {
+	w.WriteString("<")
+	w.WriteString(iri)
+	w.WriteString("> ")
+}
+
+func writeUIDFunc(w *bytes.Buffer, uidVar string) {
+	w.WriteString("uid(")
+	w.WriteString(uidVar)
+	w.WriteString(") ")
+}
+
+func writeUID(w *bytes.Buffer, uid string) {
+	if isUID(uid) {
+		writeIRI(w, uid)
+	} else {
+		writeUIDFunc(w, uid)
+	}
 }

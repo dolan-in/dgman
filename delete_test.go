@@ -1,311 +1,404 @@
 package dgman
 
 import (
-	"encoding/json"
+	"log"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestTraverseUIDs(t *testing.T) {
-	queryResult := []byte(`[{"uid":"0x12","friends":[{"uid":"0x13","friends":[{"uid":"0x18","friends":[{"uid":"0x19"},{"uid":"0x20"}]}]},{"uid":"0x14"}]},{"uid":"0x15","friends":[{"uid":"0x16"},{"uid":"0x17"}]}]`)
-
-	var model []map[string]interface{}
-	if err := json.Unmarshal(queryResult, &model); err != nil {
-		t.Error(err)
-	}
-
-	var uids []string
-	for _, m := range model {
-		traverseUIDs(&uids, m)
-	}
-
-	assert.Len(t, uids, 9)
-}
-
-func TestGenerateUidsJson(t *testing.T) {
-	queryResult := []byte(`[{"uid":"0x12","friends":[{"uid":"0x13","friends":[{"uid":"0x18","friends":[{"uid":"0x19"},{"uid":"0x20"}]}]},{"uid":"0x14"}]},{"uid":"0x15","friends":[{"uid":"0x16"},{"uid":"0x17"}]}]`)
-
-	var model []map[string]interface{}
-	if err := json.Unmarshal(queryResult, &model); err != nil {
-		t.Error(err)
-	}
-
-	var uids []string
-	for _, m := range model {
-		traverseUIDs(&uids, m)
-	}
-
-	assert.Len(t, uids, 9)
-
-	uidsJSON := generateUidsJSON(uids)
-	expectedResult := []byte(`[{"uid":"0x12"},{"uid":"0x18"},{"uid":"0x19"},{"uid":"0x20"},{"uid":"0x13"},{"uid":"0x14"},{"uid":"0x15"},{"uid":"0x16"},{"uid":"0x17"}]`)
-
-	assert.Len(t, uidsJSON, len(expectedResult))
-}
-
-func TestDeleteFilter(t *testing.T) {
-	users := []*User{
-		{
-			Name:     "wildan",
-			Username: "wildan",
-			Email:    "wildan2711@gmail.com",
-		},
-		{
-			Name:     "wildan",
-			Username: "wildansyah",
-			Email:    "wildansyah2711@gmail.com",
-		},
-		{
-			Name:     "aha",
-			Username: "wildani",
-			Email:    "wildani@gmail.com",
-		},
-	}
-
+func TestDelete(t *testing.T) {
 	c := newDgraphClient()
-	if _, err := CreateSchema(c, &User{}); err != nil {
+
+	_, err := CreateSchema(c, TestUser{})
+	if err != nil {
 		t.Error(err)
 	}
 	defer dropAll(c)
 
-	tx := NewTxn(c)
+	tx := NewTxn(c).SetCommitNow()
+	user := createTestUser()
 
-	err := tx.Create(&users)
-	if err != nil {
-		t.Error(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Error(err)
-	}
-
-	_, err = NewTxn(c).Delete(&User{}, true).
-		Filter(`allofterms(name, "wildan")`).
-		Nodes()
+	uids, err := tx.Mutate(&user)
 	if err != nil {
 		t.Error(err)
 	}
 
-	var all []*User
-	if err := NewTxn(c).Get(&all).All().Nodes(); err != nil {
+	assert.Len(t, uids, 9)
+
+	tx = NewTxn(c).SetCommitNow()
+	err = tx.Delete(&DeleteParams{
+		Nodes: []DeleteNode{
+			// delete the edge
+			{
+				UID: user.UID,
+				Edges: []DeleteEdge{
+					{
+						Pred: "schools",
+						UIDs: []string{user.Schools[0].UID},
+					},
+				},
+			},
+			// delete the node
+			{
+				UID: user.Schools[0].UID,
+			},
+		},
+	})
+
+	tx = NewReadOnlyTxn(c)
+
+	// school node should be deleted
+	var school TestSchool
+	err = tx.Get(&school).
+		UID(user.Schools[0].UID).
+		Node()
+
+	assert.Equal(t, ErrNodeNotFound, err)
+
+	var updatedUser TestUser
+	err = tx.Get(&updatedUser).
+		UID(user.UID).
+		All(3).
+		Node()
+	if err != nil {
 		t.Error(err)
 	}
 
-	assert.Len(t, all, 1)
+	// first school should be deleted
+	user.Schools = user.Schools[1:]
+
+	assert.Equal(t, user, updatedUser)
+
+	// delete all school edges
+	tx = NewTxn(c).SetCommitNow()
+	err = tx.Delete(&DeleteParams{
+		Nodes: []DeleteNode{
+			// delete the edge
+			{
+				UID: user.UID,
+				Edges: []DeleteEdge{
+					{
+						Pred: "schools",
+					},
+				},
+			},
+			// delete the node
+			{
+				UID: user.Schools[0].UID,
+			},
+		},
+	})
+
+	var updatedUser2 TestUser
+	tx = NewReadOnlyTxn(c)
+	err = tx.Get(&updatedUser2).
+		UID(user.UID).
+		All(3).
+		Node()
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, updatedUser2.Schools, 0)
 }
 
 func TestDeleteQuery(t *testing.T) {
 	c := newDgraphClient()
-	if _, err := CreateSchema(c, &User{}); err != nil {
+
+	_, err := CreateSchema(c, TestUser{})
+	if err != nil {
 		t.Error(err)
 	}
 	defer dropAll(c)
 
-	school := School{
-		Name: "wildan's school",
-	}
-	tx := NewTxn(c)
+	tx := NewTxn(c).SetCommitNow()
+	user := createTestUser()
 
-	err := tx.Create(&school, true)
+	uids, err := tx.Mutate(&user)
 	if err != nil {
 		t.Error(err)
 	}
 
-	users := []*User{
-		{
-			Name:     "wildan",
-			Username: "wildan",
-			Email:    "wildan2711@gmail.com",
-			Schools:  []School{school},
-		},
-		{
-			Name:     "wildan",
-			Username: "wildansyah",
-			Email:    "wildansyah2711@gmail.com",
-		},
-		{
-			Name:     "aha",
-			Username: "wildani",
-			Email:    "wildani@gmail.com",
-		},
-	}
+	assert.Len(t, uids, 9)
 
-	tx = NewTxn(c)
+	queryUser := TestUser{}
 
-	err = tx.Create(&users)
-	if err != nil {
-		t.Error(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Error(err)
-	}
-
-	nodes, err := NewTxn(c).Delete(&User{}, true).
-		Query(`@filter(allofterms(name, "wildan")) {
-			uid
-			schools {
-				uid
+	tx = NewTxn(c).SetCommitNow()
+	query := NewQueryBlock(NewQuery().
+		Model(&queryUser).
+		UID(user.UID).
+		Query(`{
+			schools @filter(eq(identifier, "harvard")) {
+				schoolId as uid
 			}
-		}`).
-		Nodes()
-	if err != nil {
-		t.Error(err)
-	}
-
-	assert.Len(t, nodes, 3)
-
-	var all []*User
-	if err := NewTxn(c).Get(&all).All().Nodes(); err != nil {
-		t.Error(err)
-	}
-
-	assert.Len(t, all, 1)
-}
-
-func TestDeleteQueryNode(t *testing.T) {
-	c := newDgraphClient()
-	if _, err := CreateSchema(c, &User{}); err != nil {
-		t.Error(err)
-	}
-	defer dropAll(c)
-
-	users := []*User{
-		{
-			Name:     "wildan",
-			Username: "wildan",
-			Email:    "wildan2711@gmail.com",
-			Schools: []School{
-				{
-					Name: "wildan's school",
+		}`))
+	result, err := tx.DeleteQuery(query, &DeleteParams{
+		Nodes: []DeleteNode{
+			{
+				UID: user.UID,
+				Edges: []DeleteEdge{
+					{
+						Pred: "schools",
+						UIDs: []string{"schoolId"},
+					},
 				},
 			},
+			{
+				UID: "schoolId",
+			},
 		},
-		{
-			Name:     "wildan",
-			Username: "wildansyah",
-			Email:    "wildansyah2711@gmail.com",
-		},
-		{
-			Name:     "aha",
-			Username: "wildani",
-			Email:    "wildani@gmail.com",
-		},
-	}
-
-	tx := NewTxn(c)
-
-	err := tx.Create(&users)
+	})
 	if err != nil {
 		t.Error(err)
 	}
-	if err := tx.Commit(); err != nil {
+
+	err = result.Scan()
+	if err != nil {
 		t.Error(err)
 	}
 
-	nodes, err := NewTxn(c).Delete(&User{}, true).
-		Query(`@filter(eq(email, "wildan2711@gmail.com")) {
-			uid
-			schools {
-				uid
-			}
-		}`).
+	assert.Len(t, queryUser.Schools, 1)
+
+	tx = NewReadOnlyTxn(c)
+
+	var updatedUser TestUser
+	err = tx.Get(&updatedUser).
+		UID(user.UID).
+		All(3).
 		Node()
 	if err != nil {
 		t.Error(err)
 	}
 
-	assert.Len(t, nodes, 2)
+	// school with identifier harvard should be deleted
+	user.Schools = user.Schools[:1]
 
-	var all []*User
-	if err := NewTxn(c).Get(&all).All().Nodes(); err != nil {
+	assert.Equal(t, user, updatedUser)
+
+	var school TestSchool
+	err = tx.Get(&school).
+		UID(queryUser.Schools[0].UID).
+		Node()
+
+	assert.Equal(t, ErrNodeNotFound, err)
+}
+
+func TestDeleteQueryCond(t *testing.T) {
+	c := newDgraphClient()
+
+	_, err := CreateSchema(c, TestUser{})
+	if err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	tx := NewTxn(c).SetCommitNow()
+	user := createTestUser()
+
+	uids, err := tx.Mutate(&user)
+	if err != nil {
 		t.Error(err)
 	}
 
-	assert.Len(t, all, 2)
+	assert.Len(t, uids, 9)
+
+	queryUser := TestUser{}
+
+	tx = NewTxn(c).SetCommitNow()
+	query := NewQueryBlock(NewQuery().
+		Model(&queryUser).
+		UID(user.UID).
+		Query(`{
+			schools @filter(eq(identifier, "harvard")) {
+				schoolId as uid
+			}
+		}`))
+	result, err := tx.DeleteQuery(query, &DeleteParams{
+		Cond: "@if(gt(len(schoolId), 0))",
+		Nodes: []DeleteNode{
+			{UID: user.UID},
+		},
+	})
+	if err != nil {
+		t.Error(err)
+	}
+
+	err = result.Scan()
+	if err != nil {
+		t.Error(err)
+	}
+
+	schoolUids := make([]string, len(queryUser.Schools))
+	for i, school := range queryUser.Schools {
+		schoolUids[i] = school.UID
+	}
+
+	assert.Len(t, schoolUids, 1)
+
+	tx = NewReadOnlyTxn(c)
+
+	var updatedUser TestUser
+	err = tx.Get(&updatedUser).
+		UID(user.UID).
+		All(3).
+		Node()
+
+	assert.Equal(t, ErrNodeNotFound, err)
+}
+
+func TestDeleteQueryCondUidFunc(t *testing.T) {
+	log.SetFlags(log.Llongfile)
+	c := newDgraphClient()
+
+	_, err := CreateSchema(c, TestUser{})
+	if err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	tx := NewTxn(c).SetCommitNow()
+	user := createTestUser()
+
+	uids, err := tx.Mutate(&user)
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, uids, 9)
+
+	tx = NewReadOnlyTxn(c)
+
+	schools := []TestSchool{}
+	myQuery := tx.Get(&schools).Filter("uid($1)", UIDs([]string{user.Schools[0].UID, user.Schools[1].UID}))
+	err = myQuery.Nodes()
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, schools, 2)
+
+	queryUser := TestUser{}
+
+	tx = NewTxn(c).SetCommitNow()
+	query := NewQueryBlock(NewQuery().
+		Model(&queryUser).
+		UID(user.UID).
+		Query(`{
+			schools {
+				schoolId as uid
+			}
+		}`))
+	result, err := tx.DeleteQuery(query, &DeleteParams{
+		Cond: "@if(gt(len(schoolId), 1))",
+		Nodes: []DeleteNode{
+			{UID: "schoolId"},
+		},
+	})
+	if err != nil {
+		t.Error(err)
+	}
+
+	err = result.Scan()
+	if err != nil {
+		t.Error(err)
+	}
+
+	schoolUids := make([]string, len(queryUser.Schools))
+	for i, school := range queryUser.Schools {
+		schoolUids[i] = school.UID
+	}
+
+	assert.Len(t, queryUser.Schools, 2)
+
+	tx = NewTxn(c).SetCommitNow()
+	if err = tx.DeleteEdge(user.UID, "schools"); err != nil {
+		t.Error(err)
+	}
+
+	tx = NewReadOnlyTxn(c)
+
+	var updatedUser TestUser
+	err = tx.Get(&updatedUser).
+		UID(user.UID).
+		All(3).
+		Node()
+
+	assert.Len(t, updatedUser.Schools, 0)
+
+	schools = []TestSchool{}
+	err = tx.Get(&schools).Filter("uid_in($1)", UIDs([]string{user.Schools[0].UID, user.Schools[1].UID})).Nodes()
+
+	assert.Len(t, schools, 0)
+}
+
+func TestDeleteNode(t *testing.T) {
+	c := newDgraphClient()
+
+	_, err := CreateSchema(c, TestUser{})
+	if err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	tx := NewTxn(c).SetCommitNow()
+	user := createTestUser()
+
+	uids, err := tx.Mutate(&user)
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, uids, 9)
+
+	tx = NewTxn(c).SetCommitNow()
+	if err = tx.DeleteNode(user.UID); err != nil {
+		t.Error(err)
+	}
+
+	tx = NewReadOnlyTxn(c)
+
+	var updatedUser TestUser
+	err = tx.Get(&updatedUser).
+		UID(user.UID).
+		All(3).
+		Node()
+
+	assert.Equal(t, ErrNodeNotFound, err)
 }
 
 func TestDeleteEdge(t *testing.T) {
 	c := newDgraphClient()
-	if _, err := CreateSchema(c, &School{}, &User{}); err != nil {
+
+	_, err := CreateSchema(c, TestUser{})
+	if err != nil {
 		t.Error(err)
 	}
 	defer dropAll(c)
 
-	schools := []School{
-		{
-			Name: "wildan's school",
-		},
-		{
-			Name: "wildan's second school",
-		},
-		{
-			Name: "wildan's third school",
-		},
-		{
-			Name: "wildan's fourth school",
-		},
-	}
+	tx := NewTxn(c).SetCommitNow()
+	user := createTestUser()
 
-	tx := NewTxn(c)
-
-	err := tx.Create(&schools, true)
+	uids, err := tx.Mutate(&user)
 	if err != nil {
 		t.Error(err)
 	}
 
-	assert.NotZero(t, schools[0].UID)
+	assert.Len(t, uids, 9)
 
-	user := User{
-		Name:     "wildan",
-		Username: "wildan",
-		Email:    "wildan2711@gmail.com",
-		Schools:  schools,
-	}
-
-	err = NewTxn(c).Create(&user, true)
-	if err != nil {
+	tx = NewTxn(c).SetCommitNow()
+	if err = tx.DeleteEdge(user.UID, "schools", user.Schools[0].UID); err != nil {
 		t.Error(err)
 	}
 
-	user = User{}
-	err = NewTxn(c).Get(&user).
-		All(1).
+	tx = NewReadOnlyTxn(c)
+
+	var updatedUser TestUser
+	err = tx.Get(&updatedUser).
+		UID(user.UID).
+		All(3).
 		Node()
-	if err != nil {
-		t.Error(err)
-	}
 
-	assert.Len(t, user.Schools, 4)
-
-	err = NewTxn(c).Delete(&user, true).
-		Edge(user.UID, "schools", user.Schools[0].UID)
-	if err != nil {
-		t.Error(err)
-	}
-
-	user = User{}
-	err = NewTxn(c).Get(&user).
-		All(1).
-		Node()
-	if err != nil {
-		t.Error(err)
-	}
-
-	assert.Len(t, user.Schools, 3)
-
-	err = NewTxn(c).Delete(&user, true).
-		Edge(user.UID, "schools")
-	if err != nil {
-		t.Error(err)
-	}
-
-	user = User{}
-	err = NewTxn(c).Get(&user).
-		All(1).
-		Node()
-	if err != nil {
-		t.Error(err)
-	}
-
-	assert.Len(t, user.Schools, 0)
+	assert.Len(t, updatedUser.Schools, 1)
+	assert.Equal(t, updatedUser.Schools[0].UID, user.Schools[1].UID)
 }

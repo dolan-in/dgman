@@ -1,37 +1,24 @@
-/*
- * Copyright (C) 2018 Dolan and Contributors
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package dgman
 
 import (
-	"context"
-	"encoding/json"
+	stdjson "encoding/json"
 	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
 
-	"github.com/dgraph-io/dgo/v200"
 	"github.com/dgraph-io/dgo/v200/protos/api"
-	"github.com/mitchellh/reflectwalk"
+	"github.com/dolan-in/reflectwalk"
 	"github.com/pkg/errors"
 )
 
+type mutationOpCode uint8
+
 const (
-	dgraphTypePredicate = "dgraph.type"
+	mutationMutate mutationOpCode = iota
+	mutationMutateBasic
+	mutationMutateOrGet
+	mutationUpsert
 )
 
 // UniqueError returns the field and value that failed the unique node check
@@ -46,311 +33,379 @@ func (u *UniqueError) Error() string {
 	return fmt.Sprintf("%s with %s=%v already exists at uid=%s", u.NodeType, u.Field, u.Value, u.UID)
 }
 
-type mutateType struct {
-	vType     reflect.Type
-	value     *reflect.Value
-	schema    map[int]*Schema // maps struct index to dgraph schema
-	predIndex map[string]int  // maps predicate struct index
-	nodeType  string
+func isNull(x interface{}) bool {
+	return x == nil || reflect.DeepEqual(x, reflect.Zero(reflect.TypeOf(x)).Interface())
 }
 
 type node struct {
 	UID string `json:"uid"`
 }
 
-func reflectValue(model interface{}) (*reflect.Value, error) {
-	current := reflect.ValueOf(model)
-
-	if current.Kind() == reflect.Ptr && !current.IsNil() {
-		current = current.Elem()
-	}
-
-	if current.Kind() != reflect.Struct && current.Kind() != reflect.Slice && current.Kind() != reflect.Interface {
-		return nil, fmt.Errorf("model \"%s\" passed for schema is not a struct or slice", current.Type().Name())
-	}
-
-	// just use a slice, for unifying handling types
-	// slice with 1 length, the struct value as the first element
-	if current.Kind() == reflect.Struct {
-		slice := reflect.MakeSlice(reflect.SliceOf(reflect.PtrTo(current.Type())), 1, 1)
-		slice.Index(0).Set(current.Addr())
-		current = slice
-	}
-
-	return &current, nil
+type mutateType struct {
+	uidIndex    int
+	schema      []*Schema // maps struct index to dgraph schema
+	uidFuncPred string    // types with unique field must have a single predicate that determines the uid func
+	nodeType    string
 }
 
-func newMutateType(model interface{}) (*mutateType, error) {
-	mType := &mutateType{}
-	mType.schema = make(map[int]*Schema)
-	mType.predIndex = make(map[string]int)
-
-	vType, err := reflectType(model)
-	if err != nil {
-		return nil, err
-	}
-
-	mType.nodeType = getNodeType(vType)
-	mType.vType = vType
-
-	mType.value, err = reflectValue(model)
-	if err != nil {
-		return nil, err
-	}
-
-	numFields := vType.NumField()
-	for i := 0; i < numFields; i++ {
-		structField := vType.Field(i)
-
-		s, err := parseDgraphTag(&structField)
-		if err != nil {
-			return nil, err
-		}
-
-		mType.schema[i] = s
-		mType.predIndex[s.Predicate] = i
-	}
-
-	if err = mType.injectAlias(); err != nil {
-		return nil, err
-	}
-
-	return mType, nil
+func isUIDAlias(uid string) bool {
+	return strings.HasPrefix(uid, "_:")
 }
 
-func (m *mutateType) uidIndex() (int, error) {
-	index, ok := m.predIndex["uid"]
-	if !ok {
-		return -1, fmt.Errorf("uid field is not present in struct")
+func (m *mutateType) getID(v reflect.Value) string {
+	id := v.Field(m.uidIndex).String()
+	if isUIDAlias(id) {
+		return v.Field(m.uidIndex).String()[2:]
 	}
-	return index, nil
+	return id
 }
 
-func mutate(ctx context.Context, tx *dgo.Txn, data interface{}, commitNow ...bool) (*api.Response, error) {
-	optCommitNow := false
-	if len(commitNow) > 0 {
-		optCommitNow = commitNow[0]
+func newMutateType(numFields int) *mutateType {
+	return &mutateType{
+		schema: make([]*Schema, 0, numFields),
 	}
-
-	out, err := marshalAndInjectType(data)
-	if err != nil {
-		return nil, err
-	}
-
-	return tx.Mutate(ctx, &api.Mutation{
-		SetJson:   out,
-		CommitNow: optCommitNow,
-	})
 }
 
-// blankUID generates alias for blank uid from slice index
-func blankUID(index int) string {
-	return fmt.Sprintf("node-%d", index)
-}
-
-// injectAlias injects a node uid alias, for easier referencing nodes on mutate
-func (m *mutateType) injectAlias() error {
-	uidIndex, err := m.uidIndex()
-	if err != nil {
-		return err
-	}
-
-	n := m.value.Len()
-	for i := 0; i < n; i++ {
-		el := m.value.Index(i)
-		if el.Kind() == reflect.Ptr {
-			el = el.Elem()
-		}
-
-		if el.Field(uidIndex).Interface() == "" {
-			el.Field(uidIndex).SetString("_:" + blankUID(i))
-		}
-	}
-
-	return nil
+type preparedMutation struct {
+	queries    []string
+	conditions []string
+	value      reflect.Value
 }
 
 type mutation struct {
-	txn         *dgo.Txn
-	ctx         context.Context
-	update      bool
-	predicate   string
-	returnQuery bool
-	mType       *mutateType
-	commitNow   bool
+	data         interface{}
+	txn          *TxnContext
+	mutations    []preparedMutation
+	request      api.Request
+	queries      []string
+	typeCache    map[string]*mutateType
+	nodeCache    map[string]reflect.Value
+	refCache     map[string]reflect.Value
+	parentUids   map[string]string
+	conditions   map[string][]string
+	opcode       mutationOpCode
+	upsertFields set
+	depth        int
 }
 
-func newMutation(tx *TxnContext, data interface{}, commitNow ...bool) (*mutation, error) {
-	optCommitNow := false
-	if len(commitNow) > 0 {
-		optCommitNow = commitNow[0]
+func getCreatedUIDs(uidsMap map[string]string) []string {
+	uids := make([]string, 0, len(uidsMap))
+	for _, uid := range uidsMap {
+		uids = append(uids, uid)
+	}
+	return uids
+}
+
+func (m *mutation) mutate() ([]string, error) {
+	preHook := generateSchemaHook{mutation: m, skipTyping: true}
+	err := reflectwalk.Walk(m.data, preHook)
+	if err != nil {
+		return nil, errors.Wrap(err, "pre-mutation hook failed")
 	}
 
-	mType, err := newMutateType(data)
+	setJSON, err := json.Marshal(m.data)
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal setJSON failed")
+	}
+
+	resp, err := m.txn.txn.Mutate(m.txn.ctx, &api.Mutation{
+		SetJson:   setJSON,
+		CommitNow: m.txn.commitNow,
+	})
+
+	postHook := setUIDHook{resp: resp}
+	err = reflectwalk.Walk(m.data, postHook)
+	if err != nil {
+		return nil, errors.Wrap(err, "post-mutation hook failed")
+	}
+
+	return getCreatedUIDs(resp.Uids), nil
+}
+
+func (m *mutation) do() ([]string, error) {
+	err := m.generateRequest()
+	if err != nil {
+		return nil, errors.Wrap(err, "generate request failed")
+	}
+
+	resp, err := m.txn.txn.Do(m.txn.ctx, &m.request)
+	if err != nil {
+		return nil, errors.Wrap(err, "do request failed")
+	}
+
+	err = m.processResponse(resp)
 	if err != nil {
 		return nil, err
 	}
 
-	return &mutation{txn: tx.txn, ctx: tx.ctx, mType: mType, commitNow: optCommitNow}, nil
+	return getCreatedUIDs(resp.Uids), nil
 }
 
-func (m *mutation) do() error {
-	req, err := m.generateRequest()
-	if err != nil {
-		return err
+func (m *mutation) generateRequest() error {
+	preMutationHooks := []reflectwalk.StructWalker{
+		generateSchemaHook{mutation: m},
+		generateMutationHook{m},
 	}
-
-	assigned, err := m.txn.Do(m.ctx, req)
-	if err != nil {
-		return err
-	}
-
-	if assigned.Json != nil {
-		if err = m.processQuery(assigned); err != nil {
-			return err
+	for i, hook := range preMutationHooks {
+		err := reflectwalk.Walk(m.data, hook)
+		if err != nil {
+			return errors.Wrapf(err, "pre-mutation %d hook failed", i)
 		}
 	}
 
-	// if not update save uid
-	if !m.update {
-		return m.saveUID(assigned.Uids)
+	for i, mutation := range m.mutations {
+		setJSON, err := json.Marshal(mutation.value.Interface())
+		if err != nil {
+			return errors.Wrapf(err, "marshal mutation value %d failed", i)
+		}
+
+		var condition string
+		if len(mutation.conditions) > 0 {
+			condition = fmt.Sprintf("@if(%s)", strings.Join(mutation.conditions, " AND "))
+		}
+
+		m.request.Mutations = append(m.request.Mutations, &api.Mutation{
+			SetJson: setJSON,
+			Cond:    condition,
+		})
+	}
+	queryString := strings.Join(m.queries, "\n")
+	if queryString != "" {
+		m.request.Query = fmt.Sprintf("{\n%s\n}", queryString)
 	}
 
 	return nil
 }
 
-func (m *mutation) generateRequest() (req *api.Request, err error) {
-	// reflected value must be a slice
-	len := m.mType.value.Len()
-	queries := make([]string, 0, len)
-	mutations := make([]*api.Mutation, len)
-	for i := 0; i < len; i++ {
-		v := m.mType.value.Index(i)
-
-		query, condition, err := m.generateQueryConditions(v.Interface(), i)
-		if err != nil {
-			return nil, err
-		}
-
-		if v.Kind() != reflect.Ptr {
-			v = v.Addr()
-		}
-
-		setJSON, err := marshalAndInjectType(v.Interface())
-		if err != nil {
-			return nil, err
-		}
-
-		queries = append(queries, query...)
-		mutations[i] = &api.Mutation{
-			Cond:    condition,
-			SetJson: setJSON,
+func setEdgeUID(target, edgeValue reflect.Value) {
+	if edgeValue.Kind() == reflect.Ptr {
+		edgeValue = edgeValue.Elem()
+	}
+	edgeType := edgeValue.Type()
+	newEdgeValuePtr := reflect.New(edgeType)
+	newEdgeValue := newEdgeValuePtr.Elem()
+	for i := 0; i < edgeValue.NumField(); i++ {
+		field := newEdgeValue.Field(i)
+		fieldType := edgeType.Field(i)
+		if predicate := getPredicate(&fieldType); predicate == predicateUid {
+			field.Set(edgeValue.Field(i))
+			break
 		}
 	}
 
-	queryString := strings.Join(queries, "\n")
-	if queryString != "" {
-		queryString = fmt.Sprintf("{\n%s\n}", queryString)
+	if target.Kind() == reflect.Ptr {
+		target.Set(newEdgeValuePtr)
+	} else {
+		target.Set(newEdgeValue)
 	}
-
-	return &api.Request{
-		Query:     queryString,
-		Mutations: mutations,
-		CommitNow: m.commitNow,
-	}, nil
 }
 
-func (m *mutation) generateQueryConditions(data interface{}, index int) (queries []string, condition string, err error) {
-	reflectVal := reflect.ValueOf(data)
-	if reflectVal.Kind() == reflect.Ptr {
-		reflectVal = reflectVal.Elem()
+// addToRefMap adds a reference to an edge, for easier updating reference to edge uids on upsert
+func (m *mutation) addToRefMap(edge reflect.Value) {
+	if edge.Kind() == reflect.Ptr {
+		edge = edge.Elem()
 	}
+	edgeType := m.typeCache[edge.Type().String()]
+	uid := edge.Field(edgeType.uidIndex).String()
+	if isUIDAlias(uid) {
+		id := uid[2:]
+		m.refCache[id] = edge
+	}
+}
 
-	uidIndex, err := m.mType.uidIndex()
+func (m *mutation) addToParentMap(parent reflect.Value, edge reflect.Value) {
+	if edge.Kind() == reflect.Ptr {
+		edge = edge.Elem()
+	}
+	parentType := m.typeCache[parent.Type().String()]
+	edgeType := m.typeCache[edge.Type().String()]
+	parentUID := parent.Field(parentType.uidIndex).String()
+	edgeUID := edge.Field(edgeType.uidIndex).String()
+	if isUIDAlias(edgeUID) {
+		id := edgeUID[2:]
+		m.parentUids[id] = parentUID
+	}
+}
+
+// setRefsToUIDFunc sets reference uid alias in edges to UID func on upsert
+func (m *mutation) setRefsToUIDFunc(id, uidFunc string) {
+	ref, ok := m.refCache[id]
+	if ok {
+		refType := m.typeCache[ref.Type().String()]
+		ref.Field(refType.uidIndex).SetString(uidFunc)
+	}
+}
+
+func (m *mutation) copyNodeValues(nodeValue reflect.Value, field reflect.Value, schema *Schema, schemaIndex int) {
+	switch schema.Type {
+	case "[uid]":
+		edgesPlaceholder := reflect.MakeSlice(field.Type(), field.Len(), field.Cap())
+		edgesField := nodeValue.Field(schemaIndex)
+		edgesField.Set(edgesPlaceholder)
+		for i := 0; i < field.Len(); i++ {
+			edgeEl := edgesField.Index(i)
+			fieldEl := field.Index(i)
+			setEdgeUID(edgeEl, fieldEl)
+			m.addToRefMap(edgeEl)
+			m.addToParentMap(nodeValue, fieldEl)
+		}
+	case "uid":
+		edge := nodeValue.Field(schemaIndex)
+		setEdgeUID(edge, field)
+		m.addToRefMap(edge)
+		m.addToParentMap(nodeValue, edge)
+	default:
+		if field.CanSet() {
+			nodeValue.Field(schemaIndex).Set(field)
+		}
+	}
+}
+
+func generateFilter(id, nodeType, predicate string, jsonValue []byte) string {
+	filter := fmt.Sprintf("eq(%s, %s) AND type(%s)", predicate, jsonValue, nodeType)
+	if isUID(id) {
+		// if update make sure not unique checking the current node
+		filter = fmt.Sprintf("NOT uid(%s) AND %s", id, filter)
+	}
+	return filter
+}
+
+// isUpsertField checks if the predicate is an upsert field specified by the user,
+// when upsertFields is empty, any unique field can be upserted
+func (m *mutation) isUpsertField(predicate string) bool {
+	return m.upsertFields.Has(predicate)
+}
+
+func (m *mutation) generateQuery(id string, mutateType *mutateType, uidListIndex string, schema *Schema, value interface{}, level int) (query string, err error) {
+	queryIndex := fmt.Sprintf("q%s", uidListIndex[1:])
+
+	jsonValue, err := json.Marshal(value)
 	if err != nil {
-		return nil, "", err
+		return "", errors.Wrapf(err, "marshal %v", value)
 	}
 
-	numField := m.mType.vType.NumField()
-	var conditions []string
-	for schemaIndex := 0; schemaIndex < numField; schemaIndex++ {
-		field := reflectVal.Field(schemaIndex)
-		schema := m.mType.schema[schemaIndex]
-		// index refers to the slice index of data
-		queryIndex := fmt.Sprintf("q_%d_%d", index, schemaIndex)
-		uidListIndex := fmt.Sprintf("u_%d_%d", index, schemaIndex)
+	filter := generateFilter(id, mutateType.nodeType, schema.Predicate, jsonValue)
+
+	queryFields := fmt.Sprintf("%s as uid", uidListIndex)
+	if m.opcode == mutationMutateOrGet {
+		var buffer strings.Builder
+		expandPredicate(&buffer, m.depth-level)
+		queryFields = fmt.Sprintf("%s\n\t\texpand(_all_)%s", queryFields, buffer.String())
+	}
+
+	query = fmt.Sprintf("\t%s(func: type(%s), first: 1) @filter(%s) {\n\t\t%s\n\t}", queryIndex, mutateType.nodeType, filter, queryFields)
+
+	return query, nil
+}
+
+func (m *mutation) updateToUIDFunc(v reflect.Value, nodeValue reflect.Value, id, uidListIndex string, uidIndex int) string {
+	uidFunc := fmt.Sprintf("uid(%s)", uidListIndex)
+	// update uid value to uid func
+	nodeValue.Field(uidIndex).SetString(uidFunc)
+	v.Field(uidIndex).SetString(uidFunc)
+	// update node cache to use uid func instead of uid alias
+	m.nodeCache[uidFunc] = v
+	// update parent uid
+	m.parentUids[uidFunc] = m.parentUids[id]
+
+	m.setRefsToUIDFunc(id, uidFunc)
+
+	return uidFunc
+}
+
+func (m *mutation) generateMutation(v reflect.Value, level int) error {
+	var (
+		queries    []string
+		conditions []string
+	)
+
+	vType := v.Type()
+	mutateType := m.typeCache[vType.String()]
+	id := mutateType.getID(v)
+	nodeValue := reflect.New(vType)
+	nodeValue = nodeValue.Elem()
+	idFunc := id
+
+	for schemaIndex, schema := range mutateType.schema {
+		field := v.Field(schemaIndex)
+		if !field.CanInterface() {
+			// probably an unexported field, skip
+			continue
+		}
+
+		value := field.Interface()
+		if isNull(value) {
+			// empty/null values don't need be to processed
+			continue
+		}
+
+		// copy values to prevent mutating original data when setting edges
+		m.copyNodeValues(nodeValue, field, schema, schemaIndex)
 
 		if schema.Unique {
-			value := field.Interface()
-			if isNull(value) {
-				// only check unique if not null/zero value
-				continue
+			uidListIndex := fmt.Sprintf("u_%s_%d", id, schemaIndex)
+
+			isNotUpdate := !isUID(id)
+			isUIDFuncField := mutateType.uidFuncPred == schema.Predicate
+			if isNotUpdate && isUIDFuncField {
+				idFunc = m.updateToUIDFunc(v, nodeValue, id, uidListIndex, mutateType.uidIndex)
 			}
 
-			jsonValue, err := json.Marshal(value)
+			query, err := m.generateQuery(id, mutateType, uidListIndex, schema, value, level)
 			if err != nil {
-				return nil, "", errors.Wrapf(err, "marshal %v", value)
+				return errors.Wrapf(err, "generate query on %s field failed", schema.Predicate)
 			}
 
-			filter := fmt.Sprintf("eq(%s, %s)", schema.Predicate, jsonValue)
-			if m.update {
-				uid := reflectVal.Field(uidIndex).String()
-				// if update make sure not unique checking the current node
-				filter = fmt.Sprintf("NOT uid(%s) AND %s", uid, filter)
-			}
+			queries = append(queries, query)
 
-			createOrGet := m.returnQuery && (m.predicate == "" || m.predicate == schema.Predicate)
-
-			queryFields := fmt.Sprintf("%s as uid", uidListIndex)
-			if createOrGet {
-				queryFields = fmt.Sprintf("%s\nexpand(_all_)", queryFields)
-			}
-			queries = append(queries, fmt.Sprintf("\t%s(func: type(%s), first: 1) @filter(%s) {\n%s\n}", queryIndex, m.mType.nodeType, filter, queryFields))
-			// on upsert field, allow mutation to continue, skip condition
-			if m.predicate != schema.Predicate || createOrGet {
+			isAddCondition := m.opcode != mutationUpsert || !isUIDFuncField
+			if isAddCondition {
 				conditions = append(conditions, fmt.Sprintf("eq(len(%s), 0)", uidListIndex))
 			}
 		}
-
-		if m.predicate != "" && m.predicate == schema.Predicate {
-			uidFunc := fmt.Sprintf("uid(%s)", uidListIndex)
-			reflectVal.Field(uidIndex).SetString(uidFunc)
-		}
 	}
 
-	conditionString := strings.Join(conditions, " AND ")
-	if conditionString != "" {
-		conditionString = fmt.Sprintf("@if(%s)", conditionString)
-	}
+	// add parent conditions to prevent orphaned child nodes
+	parentConditions := m.conditions[m.parentUids[idFunc]]
+	conditions = append(parentConditions, conditions...)
+	m.conditions[idFunc] = conditions
 
-	return queries, conditionString, nil
+	m.mutations = append([]preparedMutation{{
+		conditions: conditions,
+		value:      nodeValue,
+	}}, m.mutations...)
+	m.queries = append(m.queries, queries...)
+
+	return nil
 }
 
-func parseQueryIndex(queryIndex string) (sliceIndex int, schemaIndex int, err error) {
-	// queryIndex should have the format q_<sliceIndex>_<schemaIndex>
+func parseQueryIndex(queryIndex string) (id string, schemaIndex int, err error) {
+	// queryIndex should have the format q_<id>_<schemaIndex>
 	// e.g: q_0_2
 	queryIndexParts := strings.Split(queryIndex, "_")
 	if len(queryIndexParts) != 3 {
 		// hopefully no unrecognized queries found
-		return 0, 0, fmt.Errorf("unrecognized query")
+		return "", 0, fmt.Errorf("unrecognized query")
 	}
 
-	sliceIndex, err = strconv.Atoi(queryIndexParts[1])
-	if err != nil {
-		return 0, 0, errors.Wrapf(err, "sliceIndex atoi %s", queryIndex)
+	id = queryIndexParts[1]
+	isAlias := !(isUID(id) && isUIDFunc(id))
+	if isAlias {
+		id = "_:" + id
 	}
+
 	schemaIndex, err = strconv.Atoi(queryIndexParts[2])
 	if err != nil {
-		return 0, 0, errors.Wrapf(err, "schemaIndex atoi %s", queryIndex)
+		return "", 0, errors.Wrapf(err, "schemaIndex atoi %s", queryIndex)
 	}
 
-	return sliceIndex, schemaIndex, nil
+	return id, schemaIndex, nil
 }
 
-func (m *mutation) processQuery(assigned *api.Response) error {
-	var mapNodes map[string][]json.RawMessage
-	if err := json.Unmarshal(assigned.Json, &mapNodes); err != nil {
-		return errors.Wrapf(err, `unmarshal queryResponse "%s"`, assigned.Json)
+func (m *mutation) processJSONResponse(resp []byte) error {
+	var mapNodes map[string][]stdjson.RawMessage
+	if err := json.Unmarshal(resp, &mapNodes); err != nil {
+		return errors.Wrapf(err, `unmarshal queryResponse "%s"`, resp)
 	}
 
 	for queryIndex, msg := range mapNodes {
@@ -358,100 +413,234 @@ func (m *mutation) processQuery(assigned *api.Response) error {
 			continue
 		}
 
-		sliceIndex, schemaIndex, err := parseQueryIndex(queryIndex)
+		id, schemaIndex, err := parseQueryIndex(queryIndex)
 		if err != nil {
 			return err
 		}
 
-		schema := m.mType.schema[schemaIndex]
-		val := m.mType.value.Index(sliceIndex).Elem()
-		uidIndex, _ := m.mType.uidIndex()
+		nodeValue := m.nodeCache[id]
+		mutateType := m.typeCache[nodeValue.Type().String()]
+		schema := mutateType.schema[schemaIndex]
 
-		if m.returnQuery {
-			if m.predicate == "" || m.predicate == schema.Predicate {
-				if err := json.Unmarshal(msg[0], val.Addr().Interface()); err != nil {
-					return errors.Wrapf(err, "unmarshal query %s", queryIndex)
+		switch m.opcode {
+		case mutationMutate:
+			var node node
+			if err := json.Unmarshal(msg[0], &node); err != nil {
+				return errors.Wrapf(err, "unmarshal node %s", queryIndex)
+			}
+
+			queryUID := node.UID
+
+			// only return unique error if not updating the user specified node
+			// i.e: UID field is set
+			if nodeValue.Field(mutateType.uidIndex).String() != queryUID {
+				return &UniqueError{
+					NodeType: mutateType.nodeType,
+					Field:    schema.Predicate,
+					Value:    nodeValue.Field(schemaIndex).Interface(),
+					UID:      queryUID,
 				}
 			}
-			continue
-		}
+		case mutationMutateOrGet:
+			parent := m.nodeCache[m.parentUids[id[2:]]]
+			if parent.IsValid() {
+				parentType := m.typeCache[parent.Type().String()]
+				parentID := parentType.getID(parent)
+				if isUID(parentID) {
+					// if parent is already set from query, don't unmarshal this query
+					continue
+				}
+			}
 
-		var node node
-		if err := json.Unmarshal(msg[0], &node); err != nil {
-			return errors.Wrapf(err, "unmarshal node %s", queryIndex)
-		}
+			if err := json.Unmarshal(msg[0], nodeValue.Addr().Interface()); err != nil {
+				return errors.Wrapf(err, "unmarshal query %s", queryIndex)
+			}
+		case mutationUpsert:
+			// set uid based on existing node query
+			var node node
+			if err := json.Unmarshal(msg[0], &node); err != nil {
+				return errors.Wrapf(err, "unmarshal node %s", queryIndex)
+			}
 
-		queryUID := node.UID
+			uidFunc := fmt.Sprintf("uid(u_%s_%d)", id[2:], schemaIndex)
+			upsertNodeValue, ok := m.nodeCache[uidFunc]
+			if !ok {
+				// if not upsert field, return unique error
+				return &UniqueError{
+					NodeType: mutateType.nodeType,
+					Field:    schema.Predicate,
+					Value:    nodeValue.Field(schemaIndex).Interface(),
+					UID:      node.UID,
+				}
+			}
 
-		// set uid if upsert
-		if m.predicate != "" && m.predicate == schema.Predicate {
-			uidFunc := fmt.Sprintf("uid(u_%d_%d)", sliceIndex, schemaIndex)
-			uidField := val.Field(uidIndex)
+			queryUID := node.UID
+
+			uidField := upsertNodeValue.Field(mutateType.uidIndex)
 			if uidFunc == uidField.String() {
-				// set the uid, if this is the matching upsert uid
 				uidField.SetString(queryUID)
 			}
-			continue
-		}
-
-		// only return unique error if not updating the user specified node
-		// i.e: UID field is set
-		if val.Field(uidIndex).String() != queryUID {
-			return &UniqueError{
-				NodeType: m.mType.nodeType,
-				Field:    schema.Predicate,
-				Value:    val.Field(schemaIndex).Interface(),
-				UID:      queryUID,
-			}
 		}
 	}
+
 	return nil
 }
 
-// saveUID saves the UID to the passed model, field with uid json tag
-func (m *mutation) saveUID(uids map[string]string) error {
-	val := m.mType.value
+func (m *mutation) processResponse(resp *api.Response) error {
+	if resp.Json != nil {
+		if err := m.processJSONResponse(resp.Json); err != nil {
+			return err
+		}
+	}
 
-	uidIndex, err := m.mType.uidIndex()
+	postHook := setUIDHook{resp: resp}
+	err := reflectwalk.Walk(m.data, postHook)
 	if err != nil {
-		return err
-	}
-
-	// reflected value must be a slice
-	n := val.Len()
-	for i := 0; i < n; i++ {
-		el := val.Index(i)
-		if el.Kind() == reflect.Ptr {
-			el = el.Elem()
-		}
-
-		uidAlias := blankUID(i)
-		uid, exists := uids[uidAlias]
-		if exists {
-			el.Field(uidIndex).SetString(uid)
-		} else {
-			val := el.Field(uidIndex).String()
-			if val[0] == '_' {
-				// don't return node alias if uid not assigned
-				el.Field(uidIndex).SetString("")
-			}
-		}
-
-		if m.predicate != "" {
-			// if upsert created a new node
-			schemaIndex := m.mType.predIndex[m.predicate]
-			uidFunc := fmt.Sprintf("uid(u_%d_%d)", i, schemaIndex)
-			if uid, exists := uids[uidFunc]; exists {
-				el.Field(uidIndex).SetString(uid)
-			}
-		}
+		return errors.Wrap(err, "post-mutation hook failed")
 	}
 
 	return nil
 }
 
-func isNull(x interface{}) bool {
-	return x == nil || reflect.DeepEqual(x, reflect.Zero(reflect.TypeOf(x)).Interface())
+func setType(field reflect.StructField, fieldVal reflect.Value, nodeType string) error {
+	if !fieldVal.CanSet() {
+		return fmt.Errorf("dgraph.type not settable on %s.%s", nodeType, field.Name) // did you pass pointer?
+	}
+	switch field.Type.Kind() {
+	case reflect.String:
+		fieldVal.SetString(nodeType)
+	case reflect.Slice:
+		if field.Type.Elem().Kind() != reflect.String {
+			return errors.New(`"dgraph.type" field is not a slice of strings`)
+		}
+		fieldVal.Set(reflect.ValueOf([]string{nodeType}))
+	default:
+		return errors.New(`unsupported type for "dgraph.type" predicate`)
+	}
+
+	return nil
+}
+
+type generateSchemaHook struct {
+	mutation   *mutation
+	skipTyping bool
+}
+
+func (h generateSchemaHook) Struct(v reflect.Value, level int) error {
+	if level > h.mutation.depth {
+		// set max level as depth
+		h.mutation.depth = level
+	}
+	return nil
+}
+
+func (h generateSchemaHook) StructField(p reflect.Value, field reflect.StructField, v reflect.Value, level int) error {
+	pType := p.Type()
+	nodeType := pType.Name()
+	mutateType, ok := h.mutation.typeCache[pType.String()]
+	if !ok {
+		mutateType = newMutateType(p.NumField())
+	}
+	// schema typing is completed before on type
+	skipTyping := p.NumField() > 0 && len(mutateType.schema) == p.NumField()
+	if h.skipTyping {
+		skipTyping = true
+	}
+
+	i := field.Index[len(field.Index)-1]
+	fieldName := fmt.Sprintf("%s.%s", pType.Name(), field.Name)
+
+	predicate := getPredicate(&field)
+	switch predicate {
+	case predicateUid:
+		uid, err := genUID(field, v)
+		if err != nil {
+			return errors.Wrap(err, "gen UID failed")
+		}
+		if uid != "" {
+			// cache the struct value by its generated id
+			h.mutation.nodeCache[uid] = p
+		}
+		// for easier accessing the uid field
+		mutateType.uidIndex = i
+	case predicateDgraphType:
+		dgraphTag := field.Tag.Get(tagName)
+		if dgraphTag != "" {
+			nodeType = dgraphTag
+		}
+		if err := setType(field, v, nodeType); err != nil {
+			return errors.Wrapf(err, "set type failed on %s", fieldName)
+		}
+		mutateType.nodeType = nodeType
+	}
+
+	if !skipTyping {
+		schema, err := parseDgraphTag(&field)
+		if err != nil {
+			return errors.Wrapf(err, "parse dgraph tag failed on %s", fieldName)
+		}
+		mutateType.schema = append(mutateType.schema, schema)
+		if schema.Unique {
+			if h.mutation.upsertFields.Has(predicate) {
+				mutateType.uidFuncPred = predicate
+			}
+
+			if mutateType.uidFuncPred == "" {
+				mutateType.uidFuncPred = predicate
+			}
+		}
+		// cache the parsed type
+		h.mutation.typeCache[pType.String()] = mutateType
+
+		return nil
+	}
+
+	return nil
+}
+
+type generateMutationHook struct {
+	mutation *mutation
+}
+
+func (h generateMutationHook) Struct(v reflect.Value, level int) error {
+	return h.mutation.generateMutation(v, level)
+}
+
+func (h generateMutationHook) StructField(s reflect.Value, f reflect.StructField, v reflect.Value, level int) error {
+	return nil
+}
+
+type setUIDHook struct {
+	mutation *mutation
+	resp     *api.Response
+}
+
+func (h setUIDHook) Struct(v reflect.Value, level int) error {
+	return nil
+}
+
+func (h setUIDHook) StructField(s reflect.Value, f reflect.StructField, v reflect.Value, level int) error {
+	err := setUIDs(f, v, h.resp.Uids)
+	if err != nil {
+		return errors.Wrap(err, "set UIDs failed")
+	}
+	return nil
+}
+
+func newMutation(txn *TxnContext, data interface{}) *mutation {
+	return &mutation{
+		data: data,
+		txn:  txn,
+		// TODO: optimize use of maps
+		nodeCache:  make(map[string]reflect.Value),
+		typeCache:  make(map[string]*mutateType),
+		refCache:   make(map[string]reflect.Value),
+		conditions: make(map[string][]string),
+		parentUids: make(map[string]string),
+		request: api.Request{
+			CommitNow: txn.commitNow,
+		},
+	}
 }
 
 // SetTypes recursively walks all structures in data and sets the value of the
@@ -463,52 +652,32 @@ func SetTypes(data interface{}) error {
 	return reflectwalk.Walk(data, typeWalker{})
 }
 
-type typeWalker struct {
-	nodeType string
-}
+type typeWalker struct{}
 
-func (w typeWalker) Struct(v reflect.Value) error {
+func (w typeWalker) Struct(v reflect.Value, level int) error {
 	vType := v.Type()
 	nodeType := vType.Name()
+	numFields := v.NumField()
 
-	for i := v.NumField() - 1; i >= 0; i-- {
+	for i := numFields - 1; i >= 0; i-- {
 		field := vType.Field(i)
 		fieldVal := v.Field(i)
+		fieldName := fmt.Sprintf("%s.%s", vType.Name(), field.Name)
 
-		if getPredicate(&field) == dgraphTypePredicate {
+		predicate := getPredicate(&field)
+		if predicate == predicateDgraphType {
 			dgraphTag := field.Tag.Get(tagName)
 			if dgraphTag != "" {
 				nodeType = dgraphTag
 			}
-
-			if !fieldVal.CanSet() {
-				return fmt.Errorf("dgraph.type not settable on %s.%s", nodeType, field.Name) // did you pass pointer?
+			if err := setType(field, fieldVal, nodeType); err != nil {
+				return errors.Wrapf(err, "set type failed on %s", fieldName)
 			}
-			switch field.Type.Kind() {
-			case reflect.String:
-				fieldVal.SetString(nodeType)
-			case reflect.Slice:
-				if field.Type.Elem().Kind() != reflect.String {
-					return errors.New(`"dgraph.type" field is not a slice of strings`)
-				}
-				fieldVal.Set(reflect.ValueOf([]string{nodeType}))
-			default:
-				return errors.New(`unsupported type for "dgraph.type" predicate`)
-			}
-
-			break
 		}
 	}
 	return nil
 }
 
-func (w typeWalker) StructField(f reflect.StructField, v reflect.Value) error {
+func (w typeWalker) StructField(s reflect.Value, f reflect.StructField, v reflect.Value, level int) error {
 	return nil
-}
-
-func marshalAndInjectType(data interface{}) ([]byte, error) {
-	if err := SetTypes(data); err != nil {
-		return nil, errors.Wrap(err, "inject type")
-	}
-	return json.Marshal(data)
 }

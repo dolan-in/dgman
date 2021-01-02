@@ -25,16 +25,18 @@ import (
 type TxnInterface interface {
 	Commit() error
 	Discard() error
+	SetCommitNow() *TxnContext
 	BestEffort() *TxnContext
 	Txn() *dgo.Txn
 	WithContext(context.Context)
 	Context() context.Context
-	Mutate(data interface{}, commitNow ...bool) error
-	Create(data interface{}, commitNow ...bool) error
-	Update(data interface{}, commitNow ...bool) error
-	Upsert(data interface{}, predicate string, commitNow ...bool) error
-	CreateOrGet(data interface{}, predicate string, commitNow ...bool) error
-	Delete(model interface{}, commitNow ...bool) *Deleter
+	Mutate(data interface{}) ([]string, error)
+	MutateOrGet(data interface{}, predicates ...string) ([]string, error)
+	Upsert(data interface{}, predicates ...string) ([]string, error)
+	Delete(params ...*DeleteParams) error
+	DeleteQuery(query *QueryBlock, params ...*DeleteParams) (DeleteQuery, error)
+	DeleteNode(uids ...string) error
+	DeleteEdge(uid string, predicate string, uids ...string) error
 	Get(model interface{}) *Query
 }
 
@@ -44,5 +46,5 @@ type SchemaType interface {
 }
 
 var (
-	_ TxnInterface = (*TxnContext)(nil)
+// _ TxnInterface = (*TxnContext)(nil)
 )

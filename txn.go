@@ -17,15 +17,16 @@ package dgman
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/dgraph-io/dgo/v200"
+	"github.com/pkg/errors"
 )
 
 // TxnContext is dgo transaction coupled with context
 type TxnContext struct {
-	txn *dgo.Txn
-	ctx context.Context
+	txn       *dgo.Txn
+	ctx       context.Context
+	commitNow bool
 }
 
 // Commit calls Commit on the dgo transaction.
@@ -59,85 +60,80 @@ func (t *TxnContext) Context() context.Context {
 	return t.ctx
 }
 
-// Mutate is a shortcut to create mutations from data to be marshalled into JSON,
-// it will inject the node type from the Struct name
-func (t *TxnContext) Mutate(data interface{}, commitNow ...bool) error {
-	optCommitNow := false
-	if len(commitNow) > 0 {
-		optCommitNow = commitNow[0]
-	}
-
-	mType, err := newMutateType(data)
-	if err != nil {
-		return err
-	}
-
-	assigned, err := mutate(t.ctx, t.txn, data, optCommitNow)
-	if err != nil {
-		return err
-	}
-
-	return (&mutation{mType: mType}).saveUID(assigned.Uids)
+// SetCommitNow specifies whether to commit as soon as a mutation is called,
+//
+// i.e: set SetCommitNow: true in dgo.api.Mutation.
+//
+// If this is called, a transaction can only be used for a single mutation.
+func (t *TxnContext) SetCommitNow() *TxnContext {
+	t.commitNow = true
+	return t
 }
 
-// Create create node(s) with field unique checking, similar to Mutate,
-// will inject node type from the Struct name
-func (t *TxnContext) Create(data interface{}, commitNow ...bool) error {
-	mutation, err := newMutation(t, data, commitNow...)
-	if err != nil {
-		return err
-	}
+// Mutate does a dgraph mutation, with recursive automatic uid injection (on empty uid fields),
+// type injection (using the dgraph.type field), unique checking on fields (if applicable), and returns the created uids.
+// It will return a UniqueError when unique checking fails on a field.
+func (t *TxnContext) Mutate(data interface{}) ([]string, error) {
+	return newMutation(t, data).do()
+}
+
+// MutateBasic does a dgraph mutation like Mutate, but without any unique checking.
+// This should be quite faster if there is no uniqueness requirement on the node type
+func (t *TxnContext) MutateBasic(data interface{}) ([]string, error) {
+	return newMutation(t, data).mutate()
+}
+
+// MutateOrGet does a dgraph mutation like Mutate, but instead of returning a UniqueError when a node already exists
+// for a predicate value, it will get the existing node and inject it into the struct values.
+// Optionally, a list of predicates can be passed to be specify predicates to be unique checked.
+// A single node type can only have a single upsert predicate.
+func (t *TxnContext) MutateOrGet(data interface{}, predicates ...string) ([]string, error) {
+	mutation := newMutation(t, data)
+	mutation.opcode = mutationMutateOrGet
+	mutation.upsertFields = newSet(predicates...)
 	return mutation.do()
 }
 
-// Update updates a node by their UID with field unique checking, similar to Mutate,
-// will inject node type from the Struct name
-func (t *TxnContext) Update(data interface{}, commitNow ...bool) error {
-	mutation, err := newMutation(t, data, commitNow...)
-	if err != nil {
-		return err
-	}
-	mutation.update = true
+// Upsert does a dgraph mutation like Mutate, but instead of returning a UniqueError when a node already exists
+// for a predicate value, it will update the existing node and inject it into the struct values.
+// Optionally, a list of predicates can be passed to be specify predicates to be unique checked.
+// A single node type can only have a single upsert predicate.
+func (t *TxnContext) Upsert(data interface{}, predicates ...string) ([]string, error) {
+	mutation := newMutation(t, data)
+	mutation.opcode = mutationUpsert
+	mutation.upsertFields = newSet(predicates...)
 	return mutation.do()
 }
 
-// Upsert will update a node when a value from the passed predicate (with the node type) exists, otherwise insert the node.
-// On all conditions, unique checking holds on the node type on other unique fields.
-func (t *TxnContext) Upsert(data interface{}, predicate string, commitNow ...bool) error {
-	mutation, err := newMutation(t, data, commitNow...)
-	if err != nil {
-		return err
+// Delete will delete nodes using delete parameters, which will generate RDF n-quads for deleting
+func (t *TxnContext) Delete(params ...*DeleteParams) error {
+	if len(params) == 0 {
+		return errors.New("params cannot be empty")
 	}
-	if _, exists := mutation.mType.predIndex[predicate]; !exists {
-		return fmt.Errorf("predicate \"%s\" does not exist in passed data", predicate)
-	}
-	mutation.predicate = predicate
-	return mutation.do()
+	return t.delete(params...)
 }
 
-// CreateOrGet will create a node or if a node with a value from the passed predicate exists, return the node
-func (t *TxnContext) CreateOrGet(data interface{}, predicate string, commitNow ...bool) error {
-	mutation, err := newMutation(t, data, commitNow...)
-	if err != nil {
-		return err
+// DeleteQuery will delete nodes using a query and delete parameters, which will generate RDF n-quads for deleting
+// based on the query
+func (t *TxnContext) DeleteQuery(query *QueryBlock, params ...*DeleteParams) (DeleteQuery, error) {
+	if len(params) == 0 {
+		return DeleteQuery{}, errors.New("conds cannot be empty")
 	}
-	if _, exists := mutation.mType.predIndex[predicate]; !exists {
-		return fmt.Errorf("predicate \"%s\" does not exist in passed data", predicate)
-	}
-	mutation.returnQuery = true
-	mutation.predicate = predicate
-	return mutation.do()
+	return t.deleteQuery(query, params...)
 }
 
-// Delete prepares a delete mutation using a query
-func (t *TxnContext) Delete(model interface{}, commitNow ...bool) *Deleter {
-	optCommitNow := false
-	if len(commitNow) > 0 {
-		optCommitNow = commitNow[0]
+// DeleteNode will delete a node(s) by its explicit uid
+func (t *TxnContext) DeleteNode(uids ...string) error {
+	if len(uids) == 0 {
+		return errors.New("uids cannot be empty")
 	}
+	return t.deleteNode(uids...)
+}
 
-	q := &Query{ctx: t.ctx, tx: t.txn, model: model, name: "data"}
-	return &Deleter{q: q, ctx: t.ctx, tx: t.txn, commitNow: optCommitNow}
+// DeleteEdge will delete an edge of a node by predicate, optionally you can pass which edge uids to delete,
+// if none are passed, all edges of that predicate will be deleted
+func (t *TxnContext) DeleteEdge(uid string, predicate string, uids ...string) error {
+	return t.deleteEdge(uid, predicate, uids...)
 }
 
 // Get prepares a query for a model

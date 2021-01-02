@@ -18,13 +18,15 @@ package dgman
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
+	stdjson "encoding/json"
+	"reflect"
+
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/dgraph-io/dgo/v200/protos/api"
+	"github.com/pkg/errors"
 
 	"github.com/dgraph-io/dgo/v200"
 )
@@ -68,13 +70,75 @@ func (q *QueryBlock) Blocks(query ...*Query) *QueryBlock {
 	return q
 }
 
-// Scan unmarshals the query result into provided destination
-func (q *QueryBlock) Scan(dst interface{}) error {
+func (q *QueryBlock) scan(result []byte, dst ...interface{}) error {
+	if len(dst) == 0 {
+		err := q.scanModel(result)
+		if err != nil {
+			return errors.Wrap(err, "scanModel failed")
+		}
+		return nil
+	}
+	if err := json.Unmarshal(result, dst[0]); err != nil {
+		return errors.Wrap(err, "unmarshal query result failed")
+	}
+	return nil
+}
+
+func (q *QueryBlock) scanModel(result []byte) error {
+	var queryMap map[string]stdjson.RawMessage
+	if err := json.Unmarshal(result, &queryMap); err != nil {
+		return errors.Wrap(err, "queryMap unmarshal failed")
+	}
+	for _, block := range q.blocks {
+		// skip any nils
+		blockResult := queryMap[block.name]
+		if len(blockResult) == 0 {
+			continue
+		}
+
+		if block.model == nil {
+			continue
+		}
+
+		modelType := reflect.TypeOf(block.model)
+		if modelType.Kind() != reflect.Ptr {
+			// not a pointer skip, to avoid panic
+			continue
+		}
+		modelType = modelType.Elem()
+
+		switch modelType.Kind() {
+		case reflect.Struct:
+			modelSliceRef := reflect.MakeSlice(reflect.SliceOf(reflect.PtrTo(modelType)), 1, 1)
+			modelSlice := reflect.New(modelSliceRef.Type())
+			modelSlice.Elem().Set(modelSliceRef)
+			if err := json.Unmarshal(blockResult, modelSlice.Interface()); err != nil {
+				return errors.Wrapf(err, "queryMap %s unmarshal failed", block.name)
+			}
+			if modelSlice.Elem().Len() > 0 {
+				// set the model value to the query result value
+				reflect.ValueOf(block.model).Elem().Set(modelSlice.Elem().Index(0).Elem())
+			}
+		case reflect.Slice:
+			if err := json.Unmarshal(blockResult, block.model); err != nil {
+				return errors.Wrapf(err, "queryMap %s unmarshal failed", block.name)
+			}
+		}
+	}
+	return nil
+}
+
+// Scan unmarshals the query result into provided destination,
+// if none is passed, it will be unmarshaled to the individual query models.
+func (q *QueryBlock) Scan(dst ...interface{}) error {
 	result, err := q.executeQuery()
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(result, dst)
+	if err = q.scan(result, dst...); err != nil {
+		return errors.Wrap(err, "scan failed")
+	}
+	return nil
 }
 
 func (q *QueryBlock) String() string {
@@ -137,12 +201,18 @@ type Query struct {
 }
 
 type PagedResults struct {
-	Result   json.RawMessage
+	Result   stdjson.RawMessage
 	PageInfo []*PageInfo
 }
 
 type PageInfo struct {
 	Count int
+}
+
+// Model defines the model definition to query by, and as a default query unmarshal destination
+func (q *Query) Model(model interface{}) *Query {
+	q.model = model
+	return q
 }
 
 // Name defines the query block name, which identifies the query results
@@ -164,12 +234,6 @@ func (q *Query) Var() *Query {
 	return q
 }
 
-// Type sets the model struct to infer the node type
-func (q *Query) Type(model interface{}) *Query {
-	q.model = model
-	return q
-}
-
 // Query defines the query portion other than the root function
 func (q *Query) Query(query string, params ...interface{}) *Query {
 	q.query = parseQueryWithParams(query, params)
@@ -188,10 +252,7 @@ func (q *Query) UID(uid string) *Query {
 	return q
 }
 
-func expandPredicate(depth int) string {
-	var buffer strings.Builder
-
-	buffer.WriteString("{\n\t\tuid\n\t\tdgraph.type\n\t\texpand(_all_)")
+func expandPredicate(buffer *strings.Builder, depth int) {
 	for i := 0; i < depth; i++ {
 		tabs := strings.Repeat("\t", i+1)
 		buffer.WriteString(" {\n\t\t")
@@ -208,6 +269,13 @@ func expandPredicate(depth int) string {
 		buffer.WriteString(tabs)
 		buffer.WriteString("}")
 	}
+}
+
+func expandAll(depth int) string {
+	var buffer strings.Builder
+
+	buffer.WriteString("{\n\t\tuid\n\t\tdgraph.type\n\t\texpand(_all_)")
+	expandPredicate(&buffer, depth)
 	buffer.WriteString("\n\t}")
 
 	return buffer.String()
@@ -221,7 +289,7 @@ func (q *Query) All(depthParam ...int) *Query {
 		depth = depthParam[0]
 	}
 
-	q.query = expandPredicate(depth)
+	q.query = expandAll(depth)
 	return q
 }
 
@@ -308,7 +376,9 @@ func (q *Query) node(jsonData []byte, dst interface{}) error {
 	// remove prefix and the ending array closer ']'
 	dataBytes := jsonData[dataPrefixLen : dataLen-2]
 
-	if len(dataBytes) == 0 {
+	// if dgraph.type predicate not found, must be empty node
+	hasType := strings.Contains(string(dataBytes), predicateDgraphType)
+	if len(dataBytes) == 0 || !hasType {
 		return ErrNodeNotFound
 	}
 
@@ -387,6 +457,14 @@ func (q *Query) NodesAndCount() (count int, err error) {
 	}
 
 	return pagedResult.PageInfo[0].Count, nil
+}
+
+func isUID(str string) bool {
+	return strings.HasPrefix(str, "0x")
+}
+
+func isUIDFunc(str string) bool {
+	return strings.HasPrefix(str, "uid(")
 }
 
 func (q *Query) generateQuery(queryBuf *strings.Builder) {
@@ -510,7 +588,9 @@ func NewQueryBlock(queries ...*Query) *QueryBlock {
 
 // NewQuery returns a new empty query
 func NewQuery() *Query {
-	return &Query{}
+	return &Query{
+		name: "data", // default value
+	}
 }
 
 func parseQueryWithParams(query string, params []interface{}) string {

@@ -35,7 +35,7 @@ type TestModel struct {
 
 type TestEdge struct {
 	UID   string   `json:"uid"`
-	Level string   `json:"level"`
+	Level string   `json:"level,omitempty"`
 	DType []string `json:"dgraph.type,omitempty"`
 }
 
@@ -54,9 +54,9 @@ func TestGetByUID(t *testing.T) {
 		t.Error(err)
 	}
 
-	tx := NewTxn(c)
+	tx := NewTxn(c).SetCommitNow()
 
-	err = tx.Mutate(source, true)
+	_, err = tx.Mutate(source)
 	if err != nil {
 		t.Error(err)
 	}
@@ -86,9 +86,9 @@ func TestGetByFilter(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	tx := NewTxn(c)
+	tx := NewTxn(c).SetCommitNow()
 
-	err := tx.Mutate(source, true)
+	_, err := tx.Mutate(source)
 	if err != nil {
 		t.Error(err)
 	}
@@ -138,7 +138,7 @@ func TestFind(t *testing.T) {
 
 	tx := NewTxn(c)
 
-	err := tx.Mutate(&source)
+	_, err := tx.Mutate(&source)
 	if err != nil {
 		t.Error(err)
 	}
@@ -146,10 +146,10 @@ func TestFind(t *testing.T) {
 
 	var dst []TestModel
 	tx = NewTxn(c)
-	if err := tx.Get(&dst).Query(`@filter(allofterms(name, $1)) { 
-		uid
-		expand(_all_)
-	}`, "wildan").Nodes(); err != nil {
+	if err := tx.Get(&dst).Filter("allofterms(name, $1)", "wildan").Query(`{
+		 uid
+		 expand(_all_)
+	 }`).Nodes(); err != nil {
 		t.Error(err)
 	}
 
@@ -171,7 +171,7 @@ func TestGetByQuery(t *testing.T) {
 
 	tx := NewTxn(c)
 
-	err := tx.Create(&source)
+	_, err := tx.Mutate(&source)
 	if err != nil {
 		t.Error(err)
 	}
@@ -182,7 +182,7 @@ func TestGetByQuery(t *testing.T) {
 	}
 
 	tx = NewTxn(c)
-	err = tx.Create(&source2)
+	_, err = tx.Mutate(&source2)
 	if err != nil {
 		t.Error(err)
 	}
@@ -191,7 +191,7 @@ func TestGetByQuery(t *testing.T) {
 	source.Edges = []TestEdge{source2}
 
 	tx = NewTxn(c)
-	err = tx.Mutate(&source)
+	_, err = tx.Mutate(&source)
 	if err != nil {
 		t.Error(err)
 	}
@@ -217,6 +217,9 @@ func TestGetAllWithDepth(t *testing.T) {
 		Name:    "wildan anjing",
 		Address: "Beverly Hills",
 		Age:     17,
+		Edges: []TestEdge{{
+			Level: "one",
+		}},
 	}
 
 	c := newDgraphClient()
@@ -225,47 +228,27 @@ func TestGetAllWithDepth(t *testing.T) {
 	}
 	defer dropAll(c)
 
-	tx := NewTxn(c)
+	tx := NewTxn(c).SetCommitNow()
 
-	err := tx.Create(&source)
+	uids, err := tx.Mutate(&source)
 	if err != nil {
 		t.Error(err)
 	}
-	tx.Commit()
-
-	source2 := TestEdge{
-		Level: "one",
-	}
-
-	tx = NewTxn(c)
-	err = tx.Create(&source2)
-	if err != nil {
-		t.Error(err)
-	}
-	tx.Commit()
-
-	source.Edges = []TestEdge{source2}
-
-	tx = NewTxn(c)
-	err = tx.Mutate(&source)
-	if err != nil {
-		t.Error(err)
-	}
-	tx.Commit()
+	assert.Len(t, uids, 2)
 
 	var dst TestModel
 	tx = NewTxn(c)
 	q := tx.Get(&dst).
 		Filter(`allofterms(name, "wildan")`).
-		All(1)
+		All(2)
 	if err := q.Node(); err != nil {
 		t.Error(err)
 	}
 
-	assert.Equal(t, dst.UID, source.UID)
+	assert.Equal(t, source.UID, dst.UID)
 	assert.Len(t, dst.Edges, 1)
-	assert.Equal(t, dst.Edges[0].UID, source2.UID)
-	assert.Equal(t, dst.Edges[0].Level, source2.Level)
+	assert.Equal(t, source.Edges[0].UID, dst.Edges[0].UID)
+	assert.Equal(t, source.Edges[0].Level, dst.Edges[0].Level)
 }
 
 func TestPagination(t *testing.T) {
@@ -284,7 +267,7 @@ func TestPagination(t *testing.T) {
 	defer dropAll(c)
 
 	tx := NewTxn(c)
-	err := tx.Mutate(&models)
+	_, err := tx.Mutate(&models)
 	if err != nil {
 		t.Error(err)
 	}
@@ -341,7 +324,7 @@ func TestOrder(t *testing.T) {
 
 	tx := NewTxn(c)
 
-	err := tx.Create(&models)
+	_, err := tx.Mutate(&models)
 	if err != nil {
 		t.Error(err)
 	}
@@ -402,8 +385,8 @@ func TestQueryBlock(t *testing.T) {
 		})
 	}
 
-	tx := NewTxn(c)
-	if err := tx.Create(&models, true); err != nil {
+	tx := NewTxn(c).SetCommitNow()
+	if _, err := tx.Mutate(&models); err != nil {
 		t.Error(err)
 		return
 	}
@@ -421,7 +404,7 @@ func TestQueryBlock(t *testing.T) {
 
 	query := tx.
 		Query(
-			NewQuery().As("result").Var().Type(&TestModel{}).Filter(`anyofterms(name, $name)`),
+			NewQuery().As("result").Var().Model(&TestModel{}).Filter(`anyofterms(name, $name)`),
 			NewQuery().Name("paged").UID("result").First(2).Offset(2).All(1),
 			NewQuery().Name("pageInfo").UID("result").Query(`{ total: count(uid) }`),
 		).
@@ -455,8 +438,8 @@ func TestGetNodesAndCount(t *testing.T) {
 		})
 	}
 
-	tx := NewTxn(c)
-	if err := tx.Create(&models, true); err != nil {
+	tx := NewTxn(c).SetCommitNow()
+	if _, err := tx.Mutate(&models); err != nil {
 		t.Error(err)
 		return
 	}
@@ -473,7 +456,7 @@ func TestGetNodesAndCount(t *testing.T) {
 	assert.Equal(t, 5, count)
 }
 
-func TestExpandPredicate(t *testing.T) {
+func TestExpandAll(t *testing.T) {
 	expectedDepthZero := `{
 		uid
 		dgraph.type
@@ -504,9 +487,9 @@ func TestExpandPredicate(t *testing.T) {
 		}
 	}`
 
-	assert.Equal(t, expectedDepthZero, expandPredicate(0))
-	assert.Equal(t, expectedDepthOne, expandPredicate(1))
-	assert.Equal(t, expectedDepthTwo, expandPredicate(2))
+	assert.Equal(t, expectedDepthZero, expandAll(0))
+	assert.Equal(t, expectedDepthOne, expandAll(1))
+	assert.Equal(t, expectedDepthTwo, expandAll(2))
 }
 
 func Test_parseQueryWithParams(t *testing.T) {

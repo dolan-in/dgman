@@ -125,15 +125,15 @@ func TestMarshalSchema(t *testing.T) {
 }
 
 func TestGetNodeType(t *testing.T) {
-	nodeTypeStruct := GetNodeType(TestNode{})
-	nodeTypePtr := GetNodeType(&TestNode{})
-	nodeTypeSlice := GetNodeType([]TestNode{})
-	nodeTypeSlicePtr := GetNodeType([]*TestNode{})
+	nodeTypeStruct := GetNodeType(User{})
+	nodeTypePtr := GetNodeType(&User{})
+	nodeTypeSlice := GetNodeType([]User{})
+	nodeTypeSlicePtr := GetNodeType([]*User{})
 
-	assert.Equal(t, "TestNode", nodeTypeStruct)
-	assert.Equal(t, "TestNode", nodeTypePtr)
-	assert.Equal(t, "TestNode", nodeTypeSlice)
-	assert.Equal(t, "TestNode", nodeTypeSlicePtr)
+	assert.Equal(t, "User", nodeTypeStruct)
+	assert.Equal(t, "User", nodeTypePtr)
+	assert.Equal(t, "User", nodeTypeSlice)
+	assert.Equal(t, "User", nodeTypeSlicePtr)
 }
 
 func TestCreateSchema(t *testing.T) {
