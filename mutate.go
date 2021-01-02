@@ -261,8 +261,8 @@ func (m *mutation) copyNodeValues(nodeValue reflect.Value, field reflect.Value, 
 	}
 }
 
-func generateFilter(id, predicate string, jsonValue []byte) string {
-	filter := fmt.Sprintf("eq(%s, %s)", predicate, jsonValue)
+func generateFilter(id, nodeType, predicate string, jsonValue []byte) string {
+	filter := fmt.Sprintf("eq(%s, %s) AND type(%s)", predicate, jsonValue, nodeType)
 	if isUID(id) {
 		// if update make sure not unique checking the current node
 		filter = fmt.Sprintf("NOT uid(%s) AND %s", id, filter)
@@ -284,7 +284,7 @@ func (m *mutation) generateQuery(id string, mutateType *mutateType, uidListIndex
 		return "", errors.Wrapf(err, "marshal %v", value)
 	}
 
-	filter := generateFilter(id, schema.Predicate, jsonValue)
+	filter := generateFilter(id, mutateType.nodeType, schema.Predicate, jsonValue)
 
 	queryFields := fmt.Sprintf("%s as uid", uidListIndex)
 	if m.opcode == mutationMutateOrGet {
