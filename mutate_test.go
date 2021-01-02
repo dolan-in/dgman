@@ -151,6 +151,35 @@ func TestMutationMutate(t *testing.T) {
 	assert.IsType(t, &UniqueError{}, err, err.Error())
 }
 
+func TestMutationMutate_Nested(t *testing.T) {
+	c := newDgraphClient()
+
+	_, err := CreateSchema(c, TestUser{})
+	if err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	tx := NewTxn(c).SetCommitNow()
+	user := createTestUser()
+
+	uids, err := tx.Mutate(&user)
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, uids, 9)
+
+	tx = NewTxn(c).SetCommitNow()
+	user = createTestUser()
+	user.Email = "will@gmail.com"
+	user.Username = "wildaddd"
+
+	uids, err = tx.Mutate(&user)
+	assert.Len(t, uids, 0)
+	assert.IsType(t, &UniqueError{}, err, err.Error())
+}
+
 func TestMutationUpdate(t *testing.T) {
 	c := newDgraphClient()
 
