@@ -47,5 +47,5 @@ type SchemaType interface {
 }
 
 var (
-// _ TxnInterface = (*TxnContext)(nil)
+	_ TxnInterface = (*TxnContext)(nil)
 )
