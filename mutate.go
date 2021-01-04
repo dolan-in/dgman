@@ -78,7 +78,8 @@ func (m *mutateType) getID(v reflect.Value) string {
 
 func newMutateType(numFields int) *mutateType {
 	return &mutateType{
-		schema: make([]*Schema, 0, numFields),
+		uidIndex: -1,
+		schema:   make([]*Schema, 0, numFields),
 	}
 }
 
@@ -193,10 +194,18 @@ func (m *mutation) generateRequest() error {
 	return nil
 }
 
-func setEdgeUID(target, edgeValue reflect.Value) {
-	if edgeValue.Kind() == reflect.Ptr {
-		edgeValue = edgeValue.Elem()
+func getElemValue(value reflect.Value) reflect.Value {
+	if value.Kind() == reflect.Interface {
+		value = value.Elem()
 	}
+	if value.Kind() == reflect.Ptr {
+		value = value.Elem()
+	}
+	return value
+}
+
+func setEdgeUID(target, edgeValue reflect.Value) {
+	edgeValue = getElemValue(edgeValue)
 	edgeType := edgeValue.Type()
 	newEdgeValuePtr := reflect.New(edgeType)
 	newEdgeValue := newEdgeValuePtr.Elem()
@@ -218,9 +227,7 @@ func setEdgeUID(target, edgeValue reflect.Value) {
 
 // addToRefMap adds a reference to an edge, for easier updating reference to edge uids on upsert
 func (m *mutation) addToRefMap(edge reflect.Value) {
-	if edge.Kind() == reflect.Ptr {
-		edge = edge.Elem()
-	}
+	edge = getElemValue(edge)
 	edgeType := m.typeCache[edge.Type().String()]
 	uid := edge.Field(edgeType.uidIndex).String()
 	if isUIDAlias(uid) {
@@ -230,9 +237,7 @@ func (m *mutation) addToRefMap(edge reflect.Value) {
 }
 
 func (m *mutation) addToParentMap(parent reflect.Value, edge reflect.Value) {
-	if edge.Kind() == reflect.Ptr {
-		edge = edge.Elem()
-	}
+	edge = getElemValue(edge)
 	parentType := m.typeCache[parent.Type().String()]
 	edgeType := m.typeCache[edge.Type().String()]
 	parentUID := parent.Field(parentType.uidIndex).String()
@@ -252,6 +257,22 @@ func (m *mutation) setRefsToUIDFunc(id, uidFunc string) {
 	}
 }
 
+func (m *mutation) setEdge(nodeValue, edge, field reflect.Value) {
+	fieldValue := getElemValue(field)
+	if !fieldValue.IsValid() {
+		return
+	}
+	edgeType := m.typeCache[fieldValue.Type().String()]
+	edgeID := edgeType.getID(fieldValue)
+	if isUID(edgeID) {
+		edge.Set(field)
+	} else {
+		setEdgeUID(edge, field)
+		m.addToRefMap(edge)
+		m.addToParentMap(nodeValue, edge)
+	}
+}
+
 func (m *mutation) copyNodeValues(nodeValue reflect.Value, field reflect.Value, schema *Schema, schemaIndex int) {
 	switch schema.Type {
 	case "[uid]":
@@ -259,17 +280,13 @@ func (m *mutation) copyNodeValues(nodeValue reflect.Value, field reflect.Value, 
 		edgesField := nodeValue.Field(schemaIndex)
 		edgesField.Set(edgesPlaceholder)
 		for i := 0; i < field.Len(); i++ {
-			edgeEl := edgesField.Index(i)
 			fieldEl := field.Index(i)
-			setEdgeUID(edgeEl, fieldEl)
-			m.addToRefMap(edgeEl)
-			m.addToParentMap(nodeValue, fieldEl)
+			edgeEl := edgesField.Index(i)
+			m.setEdge(nodeValue, edgeEl, fieldEl)
 		}
 	case "uid":
 		edge := nodeValue.Field(schemaIndex)
-		setEdgeUID(edge, field)
-		m.addToRefMap(edge)
-		m.addToParentMap(nodeValue, edge)
+		m.setEdge(nodeValue, edge, field)
 	default:
 		if field.CanSet() {
 			nodeValue.Field(schemaIndex).Set(field)
@@ -337,10 +354,21 @@ func (m *mutation) generateMutation(v reflect.Value, level int) error {
 
 	vType := v.Type()
 	mutateType := m.typeCache[vType.String()]
+
+	if mutateType == nil || mutateType.uidIndex == -1 {
+		// not a dgraph node struct
+		return nil
+	}
+
 	id := mutateType.getID(v)
 	nodeValue := reflect.New(vType)
 	nodeValue = nodeValue.Elem()
 	idFunc := id
+
+	if isUID(id) && level > 0 {
+		// adding existing node edges
+		return nil
+	}
 
 	for schemaIndex, schema := range mutateType.schema {
 		field := v.Field(schemaIndex)
@@ -551,6 +579,11 @@ func (h generateSchemaHook) Struct(v reflect.Value, level int) error {
 }
 
 func (h generateSchemaHook) StructField(p reflect.Value, field reflect.StructField, v reflect.Value, level int) error {
+	if !v.CanInterface() {
+		// unexported field, skip
+		return nil
+	}
+
 	pType := p.Type()
 	nodeType := pType.Name()
 	mutateType, ok := h.mutation.typeCache[pType.String()]

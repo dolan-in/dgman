@@ -19,10 +19,19 @@ package dgman
 import (
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type EmbedTime struct {
+	time.Time
+}
+
+func (e EmbedTime) SchemaType() string {
+	return "dateTime"
+}
 
 type TestUser struct {
 	UID        string        `json:"uid,omitempty"`
@@ -32,6 +41,7 @@ type TestUser struct {
 	Schools    []TestSchool  `json:"schools,omitempty" dgraph:"count"`
 	SchoolsPtr []*TestSchool `json:"schoolsPtr,omitempty" dgraph:"count"`
 	School     *TestSchool   `json:"school,omitempty"`
+	Created    *EmbedTime    `json:"created,omitempty"`
 	DType      []string      `json:"dgraph.type,omitempty" dgraph:"User"`
 }
 
@@ -61,6 +71,10 @@ type TestLocation struct {
 }
 
 func createTestUser() TestUser {
+	timeNow, _ := time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
+	now := &EmbedTime{
+		Time: timeNow,
+	}
 	return TestUser{
 		Name:     "wildan",
 		Username: "wildan2711",
@@ -101,6 +115,7 @@ func createTestUser() TestUser {
 				EstYear: 2013,
 			},
 		},
+		Created: now,
 	}
 }
 
@@ -149,6 +164,69 @@ func TestMutationMutate(t *testing.T) {
 	uids, err = tx.Mutate(&user)
 	assert.Len(t, uids, 0)
 	assert.IsType(t, &UniqueError{}, err, err.Error())
+}
+
+func TestMutationMutate_SetEdge(t *testing.T) {
+	c := newDgraphClient()
+
+	_, err := CreateSchema(c, TestUser{})
+	if err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	tx := NewTxn(c).SetCommitNow()
+	user := TestUser{
+		Name:     "wildan ms",
+		Username: "wildan2711",
+		Email:    "wildan2711@gmail.com",
+	}
+
+	uids, err := tx.Mutate(&user)
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, uids, 1)
+
+	school := TestSchool{
+		Name:       "Harvard University",
+		Identifier: "harvard",
+	}
+
+	tx = NewTxn(c).SetCommitNow()
+	uids, err = tx.Mutate(&school)
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, uids, 1)
+
+	setEdgeUser := TestUser{
+		UID: user.UID,
+		School: &TestSchool{
+			UID: school.UID,
+		},
+	}
+
+	tx = NewTxn(c).SetCommitNow()
+	uids, err = tx.Mutate(&setEdgeUser)
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, uids, 0)
+
+	user.School = &school
+
+	// query the user, check if the user is correctly updated with the edge
+	tx = NewReadOnlyTxn(c)
+	var updatedUser TestUser
+	if err := tx.Get(&updatedUser).UID(user.UID).All(2).Node(); err != nil {
+		t.Error(err)
+	}
+
+	assert.Equal(t, user, updatedUser)
 }
 
 func TestMutationMutate_Nested(t *testing.T) {
