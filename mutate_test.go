@@ -34,15 +34,16 @@ func (e EmbedTime) SchemaType() string {
 }
 
 type TestUser struct {
-	UID        string        `json:"uid,omitempty"`
-	Name       string        `json:"name,omitempty"`
-	Username   string        `json:"username,omitempty" dgraph:"index=term unique"`
-	Email      string        `json:"email,omitempty" dgraph:"index=term unique"`
-	Schools    []TestSchool  `json:"schools,omitempty" dgraph:"count"`
-	SchoolsPtr []*TestSchool `json:"schoolsPtr,omitempty" dgraph:"count"`
-	School     *TestSchool   `json:"school,omitempty"`
-	Created    *EmbedTime    `json:"created,omitempty"`
-	DType      []string      `json:"dgraph.type,omitempty" dgraph:"User"`
+	UID             string        `json:"uid,omitempty"`
+	Name            string        `json:"name,omitempty"`
+	Username        string        `json:"username,omitempty" dgraph:"index=term unique"`
+	Email           string        `json:"email,omitempty" dgraph:"index=term unique"`
+	Schools         []TestSchool  `json:"schools,omitempty" dgraph:"count"`
+	SchoolsPtr      []*TestSchool `json:"schoolsPtr,omitempty" dgraph:"count"`
+	School          *TestSchool   `json:"school,omitempty"`
+	SchoolInterface interface{}   `json:"schoolInterface,omitempty" dgraph:"type=uid"`
+	Created         *EmbedTime    `json:"created,omitempty"`
+	DType           []string      `json:"dgraph.type,omitempty" dgraph:"User"`
 }
 
 type TestSchool struct {
@@ -207,6 +208,9 @@ func TestMutationMutate_SetEdge(t *testing.T) {
 		School: &TestSchool{
 			UID: school.UID,
 		},
+		SchoolInterface: &TestSchool{
+			UID: school.UID,
+		},
 	}
 
 	tx = NewTxn(c).SetCommitNow()
@@ -218,6 +222,7 @@ func TestMutationMutate_SetEdge(t *testing.T) {
 	assert.Len(t, uids, 0)
 
 	user.School = &school
+	user.SchoolInterface = &school
 
 	// query the user, check if the user is correctly updated with the edge
 	tx = NewReadOnlyTxn(c)
@@ -226,7 +231,14 @@ func TestMutationMutate_SetEdge(t *testing.T) {
 		t.Error(err)
 	}
 
-	assert.Equal(t, user, updatedUser)
+	jsonSchool, err := json.Marshal(user.School)
+	require.NoError(t, err)
+
+	jsonSchoolInterface, err := json.Marshal(updatedUser.SchoolInterface)
+	require.NoError(t, err)
+
+	assert.Equal(t, &school, updatedUser.School)
+	assert.JSONEq(t, string(jsonSchool), string(jsonSchoolInterface))
 }
 
 func TestMutationMutate_Nested(t *testing.T) {
