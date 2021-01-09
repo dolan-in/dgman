@@ -376,9 +376,7 @@ func (q *Query) node(jsonData []byte, dst interface{}) error {
 	// remove prefix and the ending array closer ']'
 	dataBytes := jsonData[dataPrefixLen : dataLen-2]
 
-	// if dgraph.type predicate not found, must be empty node
-	hasType := strings.Contains(string(dataBytes), predicateDgraphType)
-	if len(dataBytes) == 0 || !hasType {
+	if len(dataBytes) == 0 {
 		return ErrNodeNotFound
 	}
 
@@ -526,9 +524,17 @@ func (q *Query) generateQuery(queryBuf *strings.Builder) {
 	queryBuf.WriteString(") ")
 	// END ROOT FUNCTION
 
+	// make sure deleted nodes are not returned
+	typeIsNotNull := "has(dgraph.type)"
 	if q.filter != "" {
 		queryBuf.WriteString("@filter(")
+		queryBuf.WriteString(typeIsNotNull)
+		queryBuf.WriteString(" AND ")
 		queryBuf.WriteString(q.filter)
+		queryBuf.WriteString(") ")
+	} else {
+		queryBuf.WriteString("@filter(")
+		queryBuf.WriteString(typeIsNotNull)
 		queryBuf.WriteString(") ")
 	}
 
