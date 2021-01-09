@@ -571,10 +571,6 @@ type generateSchemaHook struct {
 }
 
 func (h generateSchemaHook) Struct(v reflect.Value, level int) error {
-	if level > h.mutation.depth {
-		// set max level as depth
-		h.mutation.depth = level
-	}
 	return nil
 }
 
@@ -621,6 +617,12 @@ func (h generateSchemaHook) StructField(p reflect.Value, field reflect.StructFie
 			return errors.Wrapf(err, "set type failed on %s", fieldName)
 		}
 		mutateType.nodeType = nodeType
+
+		// is a dgraph node, set max level as depth
+		if level > h.mutation.depth {
+			// set max level as depth
+			h.mutation.depth = level
+		}
 	}
 
 	if !skipTyping {
