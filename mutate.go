@@ -433,7 +433,7 @@ func parseQueryIndex(queryIndex string) (id string, schemaIndex int, err error) 
 	}
 
 	id = queryIndexParts[1]
-	isAlias := !(isUID(id) && isUIDFunc(id))
+	isAlias := !(isUID(id) || isUIDFunc(id))
 	if isAlias {
 		id = "_:" + id
 	}
