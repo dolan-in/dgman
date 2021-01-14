@@ -167,6 +167,49 @@ func TestMutationMutate(t *testing.T) {
 	assert.IsType(t, &UniqueError{}, err, err.Error())
 }
 
+func TestMutationMutate_UpdateUnique(t *testing.T) {
+	c := newDgraphClient()
+
+	_, err := CreateSchema(c, TestUser{})
+	if err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	tx := NewTxn(c).SetCommitNow()
+	users := []TestUser{
+		{
+			Name:     "supa saiyan",
+			Username: "myuser",
+			Email:    "myemail@gmail.com",
+		},
+		{
+			Name:     "supa saiyan",
+			Username: "myuser1",
+			Email:    "myemail1@gmail.com",
+		},
+	}
+
+	uids, err := tx.Mutate(&users)
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Len(t, uids, 2)
+
+	tx = NewTxn(c).SetCommitNow()
+	user := TestUser{
+		UID:      users[0].UID,
+		Name:     "new name",
+		Username: users[1].Username,
+		Email:    "newemail@gmail.com",
+	}
+
+	uids, err = tx.Mutate(&user)
+	assert.Len(t, uids, 0)
+	assert.IsType(t, &UniqueError{}, err, err.Error())
+}
+
 func TestMutationMutate_SetEdge(t *testing.T) {
 	c := newDgraphClient()
 
