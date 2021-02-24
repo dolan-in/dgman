@@ -47,6 +47,7 @@ type rawSchema struct {
 	Count      bool
 	List       bool
 	Upsert     bool
+	Lang       bool
 	Type       string
 	Noconflict bool
 	Unique     bool
@@ -61,6 +62,7 @@ type Schema struct {
 	Count      bool
 	List       bool
 	Upsert     bool
+	Lang       bool
 	Noconflict bool `json:"no_conflict"`
 	Unique     bool
 }
@@ -82,6 +84,9 @@ func (s Schema) String() string {
 	}
 	if s.Reverse {
 		schema += "@reverse "
+	}
+	if s.Lang {
+		schema += "@lang "
 	}
 	if s.Noconflict {
 		schema += "@noconflict "
@@ -180,22 +185,26 @@ func (t *TypeSchema) Marshal(parentType string, models ...interface{}) {
 				s.Predicate != "uid" && // don't parse uid
 				s.Predicate != predicateDgraphType && // don't parse dgraph.type
 				!strings.Contains(s.Predicate, "|") && // don't parse facet
-				s.Predicate[0] != '~' // don't parse reverse edge
-			if parse {
-				// one-to-one and many-to-many edge
-				if s.Type == "uid" || s.Type == "[uid]" {
-					// traverse node
-					edgePtr := reflect.New(fieldType)
-					t.Marshal("", edgePtr.Interface())
-				}
+				s.Predicate[0] != '~' && // don't parse reverse edge
+				!strings.Contains(s.Predicate, "@") // don't parse non-primary lang predicate
 
-				// each type should uniquely specify a predicate, that's why use a map on predicate
-				t.Types[nodeType][s.Predicate] = s
-				if exists && schema.String() != s.String() {
-					log.Printf("conflicting schema %s, already defined as \"%s\", trying to define \"%s\"\n", s.Predicate, schema.String(), s.String())
-				} else {
-					t.Schema[s.Predicate] = s
-				}
+			if !parse {
+				continue
+			}
+
+			// one-to-one and many-to-many edge
+			if s.Type == "uid" || s.Type == "[uid]" {
+				// traverse node
+				edgePtr := reflect.New(fieldType)
+				t.Marshal("", edgePtr.Interface())
+			}
+
+			// each type should uniquely specify a predicate, that's why use a map on predicate
+			t.Types[nodeType][s.Predicate] = s
+			if exists && schema.String() != s.String() {
+				log.Printf("conflicting schema %s, already defined as \"%s\", trying to define \"%s\"\n", s.Predicate, schema.String(), s.String())
+			} else {
+				t.Schema[s.Predicate] = s
 			}
 		}
 	}
@@ -273,6 +282,7 @@ func parseDgraphTag(field *reflect.StructField) (*Schema, error) {
 		schema.Reverse = dgraphProps.Reverse
 		schema.Unique = dgraphProps.Unique
 		schema.Noconflict = dgraphProps.Noconflict
+		schema.Lang = dgraphProps.Lang
 
 		if dgraphProps.Predicate != "" {
 			schema.Predicate = dgraphProps.Predicate
