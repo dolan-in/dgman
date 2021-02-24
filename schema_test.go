@@ -151,7 +151,7 @@ func TestCreateSchema(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	assert.Len(t, firstSchema.Schema, 23)
+	assert.Len(t, firstSchema.Schema, 24)
 	assert.Len(t, firstSchema.Types, 2)
 
 	secondSchema, err := CreateSchema(c, &NewUser{})
@@ -178,7 +178,7 @@ func TestMutateSchema(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	assert.Len(t, firstSchema.Schema, 23)
+	assert.Len(t, firstSchema.Schema, 24)
 	assert.Len(t, firstSchema.Types, 2)
 
 	secondSchema, err := MutateSchema(c, &NewUser{})
