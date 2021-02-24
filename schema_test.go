@@ -43,6 +43,9 @@ type User struct {
 	Email      string       `json:"email,omitempty" dgraph:"index=hash unique"`
 	Noconflict string       `json:"noconflict,omitempty" dgraph:"index=hash noconflict"`
 	Password   string       `json:"password,omitempty"`
+	Review     string       `json:"review" dgraph:"index=fulltext lang"`
+	ReviewEn   string       `json:"review@en"` // should not be parsed
+	ReviewDe   string       `json:"review@de"` // should not be parsed
 	Height     *int         `json:"height,omitempty"`
 	IsAdmin    bool         `json:"is_admin,omitempty"`
 	CustomTime CustomTime   `json:"custom_time,omitempty"`
@@ -103,6 +106,7 @@ func TestMarshalSchema(t *testing.T) {
 	assert.Equal(t, "school: uid @count @reverse .", schema["school"].String())
 	assert.Equal(t, "school_ptr: uid @count @reverse .", schema["school_ptr"].String())
 	assert.Equal(t, "status: int .", schema["status"].String())
+	assert.Equal(t, "review: string @index(fulltext) @lang .", schema["review"].String())
 	assert.Equal(t, "height: int .", schema["height"].String())
 	assert.Equal(t, "custom_time: datetime .", schema["custom_time"].String())
 	assert.Equal(t, "dob: datetime .", schema["dob"].String())
@@ -115,6 +119,9 @@ func TestMarshalSchema(t *testing.T) {
 	assert.Equal(t, "field_2: string .", schema["field_2"].String())
 	assert.Equal(t, "friends: [uid] .", schema["friends"].String())
 	assert.Equal(t, "object: uid .", schema["object"].String())
+
+	assert.NotContains(t, schema, "review@en")
+	assert.NotContains(t, schema, "review@en")
 
 	assert.Contains(t, types, "User")
 	assert.Contains(t, types, "School")
