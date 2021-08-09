@@ -4,8 +4,8 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/dgraph-io/dgo/v200"
-	"github.com/dgraph-io/dgo/v200/protos/api"
+	"github.com/dgraph-io/dgo/v210"
+	"github.com/dgraph-io/dgo/v210/protos/api"
 	"github.com/dolan-in/dgman/v2"
 	"google.golang.org/grpc"
 )

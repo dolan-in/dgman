@@ -21,10 +21,10 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/dgraph-io/dgo/v200"
+	"github.com/dgraph-io/dgo/v210"
 	jsoniter "github.com/json-iterator/go"
 
-	"github.com/dgraph-io/dgo/v200/protos/api"
+	"github.com/dgraph-io/dgo/v210/protos/api"
 	"google.golang.org/grpc"
 )
 
