@@ -26,10 +26,10 @@ import (
 type TestModel struct {
 	UID     string     `json:"uid"`
 	Name    string     `json:"name" dgraph:"index=term"`
-	Address string     `json:"address"`
+	Address string     `json:"address,omitempty"`
 	Age     int        `json:"age" dgraph:"index=int"`
 	Dead    bool       `json:"dead"`
-	Edges   []TestEdge `json:"edges"`
+	Edges   []TestEdge `json:"edges,omitempty"`
 	DType   []string   `json:"dgraph.type,omitempty"`
 }
 
@@ -109,6 +109,96 @@ func TestGetByFilter(t *testing.T) {
 	if err := tx.Get(dst).Filter(`allofterms(name, "onono")`).Node(); err != ErrNodeNotFound {
 		t.Error(err)
 	}
+}
+
+func TestCascade(t *testing.T) {
+	source := []TestModel{
+		{
+			Name: "wildan anjing",
+			Age:  17,
+		},
+		{
+			Name:    "moh wildan",
+			Address: "Beverly Hills",
+			Edges: []TestEdge{
+				{
+					Level: "1",
+				},
+			},
+			Age: 17,
+		},
+		{
+			Name: "2moh wildan",
+			Edges: []TestEdge{
+				{
+					Level: "1",
+				},
+			},
+			Age: 17,
+		},
+		{
+			Name:    "wildancok",
+			Address: "Beverly Hills",
+			Age:     17,
+		},
+	}
+
+	c := newDgraphClient()
+	if _, err := CreateSchema(c, &TestModel{}); err != nil {
+		t.Error(err)
+	}
+	defer dropAll(c)
+
+	tx := NewTxn(c)
+
+	_, err := tx.Mutate(&source)
+	if err != nil {
+		t.Error(err)
+	}
+	tx.Commit()
+
+	tests := []struct {
+		name          string
+		applyCascade  func(q *Query) *Query
+		expectedCount int
+	}{
+		{
+			name: "Cascade all fields",
+			applyCascade: func(q *Query) *Query {
+				return q.Cascade()
+			},
+			expectedCount: 1,
+		},
+		{
+			name: "Cascade single field",
+			applyCascade: func(q *Query) *Query {
+				return q.Cascade("edges")
+			},
+			expectedCount: 2,
+		},
+		{
+			name: "Cascade multiple fields",
+			applyCascade: func(q *Query) *Query {
+				return q.Cascade("address", "edges")
+			},
+			expectedCount: 1,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var dst []TestModel
+			tx = NewTxn(c)
+			if err := test.applyCascade(tx.Get(&dst).Filter("allofterms(name, $1)", "wildan")).Query(`{
+		 uid
+		 expand(_all_)
+	 }`).Nodes(); err != nil {
+				t.Error(err)
+			}
+			assert.Len(t, dst, test.expectedCount)
+		})
+	}
+
 }
 
 func TestFind(t *testing.T) {
