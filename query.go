@@ -195,6 +195,7 @@ type Query struct {
 	after       string
 	order       []order
 	groupBy     string
+	cascade     []string
 	uid         string
 	filter      string
 	query       string
@@ -342,6 +343,16 @@ func (q *Query) OrderDesc(clause string) *Query {
 // GroupBy defines the predicate to group the query by
 func (q *Query) GroupBy(predicate string) *Query {
 	q.groupBy = predicate
+	return q
+}
+
+// Cascade defines the required predicates for the query
+func (q *Query) Cascade(predicates ...string) *Query {
+	if len(predicates) == 0 {
+		q.cascade = []string{}
+	} else {
+		q.cascade = predicates
+	}
 	return q
 }
 
@@ -542,6 +553,16 @@ func (q *Query) generateQuery(queryBuf *strings.Builder) {
 		queryBuf.WriteString("@groupby(")
 		queryBuf.WriteString(q.groupBy)
 		queryBuf.WriteString(") ")
+	}
+
+	if q.cascade != nil {
+		queryBuf.WriteString("@cascade")
+		if len(q.cascade) > 0 {
+			queryBuf.WriteString("(")
+			queryBuf.WriteString(strings.Join(q.cascade, ","))
+			queryBuf.WriteString(")")
+		}
+
 	}
 
 	// allow var to have empty query block
