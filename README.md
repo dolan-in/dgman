@@ -40,7 +40,7 @@
 	- [Delete](#delete)
 	- [Delete Query](#delete-query)
 	- [Delete Node](#delete-node)
-	- [Delete Edge](#delete-edge)
+	- [Delete Edge](#delete-edges)
  - [Development](#development)
 
 ## Installation
@@ -550,6 +550,8 @@ count, err := tx.Get(&users).
 // count should return total of nodes regardless of pagination
 fmt.Println(count)
 ```
+
+Note: `Query.query` will only be applied to the count query if `Query.Cascade` is provided as node filters do not affect the overall count unless cascaded.
 
 #### Custom Scanning Query results
 
