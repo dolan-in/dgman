@@ -18,6 +18,7 @@ package dgman
 
 import (
 	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -35,7 +36,7 @@ type TestModel struct {
 
 type TestEdge struct {
 	UID   string   `json:"uid"`
-	Level string   `json:"level,omitempty"`
+	Level string   `json:"level,omitempty" dgraph:"index=term"`
 	DType []string `json:"dgraph.type,omitempty"`
 }
 
@@ -520,7 +521,12 @@ func TestGetNodesAndCount(t *testing.T) {
 		models = append(models, &TestModel{
 			Name:    fmt.Sprintf("wildan %d", i%10),
 			Address: "Beverly Hills",
-			Age:     i,
+			Edges: []TestEdge{
+				{
+					Level: strconv.Itoa(i),
+				},
+			},
+			Age: i,
 		}, &TestModel{
 			Name:    fmt.Sprintf("alex %d", i%10),
 			Address: "New York",
@@ -534,16 +540,39 @@ func TestGetNodesAndCount(t *testing.T) {
 		return
 	}
 
-	result := []*TestModel{}
+	t.Run("get nodes and count", func(t *testing.T) {
+		result := []*TestModel{}
 
-	tx = NewReadOnlyTxn(c)
-	count, err := tx.Get(&result).Filter(`anyofterms(name, "wildan")`).First(3).NodesAndCount()
-	if err != nil {
-		t.Error(err)
-	}
+		tx = NewReadOnlyTxn(c)
+		count, err := tx.Get(&result).Filter(`anyofterms(name, "wildan")`).First(3).NodesAndCount()
+		if err != nil {
+			t.Error(err)
+		}
 
-	assert.Len(t, result, 3)
-	assert.Equal(t, 5, count)
+		assert.Len(t, result, 3)
+		assert.Equal(t, 5, count)
+	})
+
+	t.Run("get nodes and count with cascade", func(t *testing.T) {
+		result := []*TestModel{}
+
+		query := `
+		{
+			uid
+			edges @filter(eq(level,0,1,2,3)){
+				uid
+			}
+		}
+`
+		tx = NewReadOnlyTxn(c)
+		count, err := tx.Get(&result).Filter(`anyofterms(name, "wildan")`).First(3).Query(query).Cascade("edges").NodesAndCount()
+		if err != nil {
+			t.Error(err)
+		}
+
+		assert.Len(t, result, 3)
+		assert.Equal(t, 4, count)
+	})
 }
 
 func TestExpandAll(t *testing.T) {
