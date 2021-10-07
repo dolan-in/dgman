@@ -426,6 +426,12 @@ func (q *Query) nodes(jsonData []byte, dst interface{}) error {
 func (q *Query) NodesAndCount() (count int, err error) {
 	tx := TxnContext{txn: q.tx, ctx: q.ctx}
 
+	var qr string
+	// only apply the query if the result will be cascaded
+	if q.cascade != nil {
+		qr = q.query
+	}
+
 	pagedResult := PagedResults{}
 	query := tx.Query(
 		&Query{
@@ -435,6 +441,8 @@ func (q *Query) NodesAndCount() (count int, err error) {
 			rootFunc: q.rootFunc,
 			model:    q.model,
 			filter:   q.filter,
+			query:    qr,
+			cascade:  q.cascade,
 		},
 		&Query{
 			name:   "result",
