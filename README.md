@@ -1,7 +1,7 @@
 
-[![Build Status](https://travis-ci.com/dolan-in/dgman.svg?branch=master)](https://travis-ci.com/dolan-in/dgman)
-[![Coverage Status](https://coveralls.io/repos/github/dolan-in/dgman/badge.svg?branch=master)](https://coveralls.io/github/dolan-in/dgman?branch=master)
-[![GoDoc](https://godoc.org/github.com/dolan-in/dgman?status.svg)](https://godoc.org/github.com/dolan-in/dgman)
+[![Build Status](https://github.com/dolan-in/dgman/actions/workflows/test.yml/badge.svg)](https://github.com/dolan-in/dgman/actions/workflows/test.yml)
+[![Codecov](https://codecov.io/gh/dolan-in/dgman/branch/master/graph/badge.svg?token=89T0A95TWW)](https://codecov.io/gh/dolan-in/dgman)
+[![Go Reference](https://pkg.go.dev/badge/github.com/dolan-in/dgman/v2.svg)](https://pkg.go.dev/github.com/dolan-in/dgman/v2)
 
 ***Dgman*** is a schema manager for [Dgraph](https://dgraph.io/) using the [Go Dgraph client (dgo)](https://github.com/dgraph-io/dgo), which manages Dgraph types, schema, and indexes from Go tags in struct definitions, allowing ORM-like convenience for developing Dgraph clients in Go.
 
