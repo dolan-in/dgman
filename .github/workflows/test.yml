@@ -14,6 +14,8 @@ jobs:
       DGMAN_TEST_DATABASE: localhost:9080
     steps:
     - uses: actions/checkout@v2
+      with:
+        fetch-depth: 2
 
     - name: Set up Go
       uses: actions/setup-go@v2
