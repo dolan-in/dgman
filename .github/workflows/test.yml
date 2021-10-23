@@ -23,8 +23,8 @@ jobs:
     - name: Set up Dgraph
       run: |
         curl https://get.dgraph.io -sSf | bash /dev/stdin "-y"
-        dgraph zero
-        dgraph alpha
+        dgraph zero &
+        dgraph alpha &
 
     - name: Run coverage
       run: go test -race -coverprofile=coverage.out -covermode=atomic
