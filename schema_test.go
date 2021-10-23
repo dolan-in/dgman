@@ -197,7 +197,7 @@ func TestMutateSchema(t *testing.T) {
 	for _, schema := range updatedSchema {
 		m := secondSchema.Schema
 		if s, ok := m[schema.Predicate]; ok {
-			assert.Equal(t, s, schema)
+			assert.Equal(t, s.String(), schema.String())
 		}
 	}
 }

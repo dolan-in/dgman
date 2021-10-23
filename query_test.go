@@ -18,6 +18,7 @@ package dgman
 
 import (
 	"fmt"
+	"log"
 	"strconv"
 	"testing"
 
@@ -399,6 +400,7 @@ func TestPagination(t *testing.T) {
 }
 
 func TestOrder(t *testing.T) {
+	log.SetFlags(log.Lshortfile)
 	models := []*TestModel{}
 	for i := 0; i < 10; i++ {
 		models = append(models, &TestModel{
@@ -426,13 +428,20 @@ func TestOrder(t *testing.T) {
 		Vars("getWithNames($name: string)", map[string]string{"$name": "wildan"}).
 		Filter("allofterms(name, $name)").
 		OrderAsc("age")
+	log.Println(query)
 	if err = query.Nodes(); err != nil {
 		t.Error(err)
 	}
 
 	assert.Len(t, result, 10)
 
+	result1 := &TestModel{}
+	NewReadOnlyTxn(c).Get(&result1).UID(models[0].UID).Node()
+	log.Printf("%+v", result1)
+
 	for i, r := range result {
+		log.Printf("%+v", models[i])
+		log.Printf("%+v", r)
 		assert.Equal(t, models[i], r)
 	}
 

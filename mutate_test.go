@@ -53,6 +53,7 @@ type TestSchool struct {
 	EstYear    int           `json:"estYear,omitempty"`
 	Location   *TestLocation `json:"location,omitempty"`
 	DType      []string      `json:"dgraph.type,omitempty"`
+	Created    time.Time     `json:"created,omitempty"` // Issue #95, make sure time is not empty when value sent on nested mutation
 }
 
 type TestSchoolList []TestSchool
@@ -87,6 +88,7 @@ func createTestUser() TestUser {
 				LocationID: "Malang",
 			},
 			EstYear: 1231,
+			Created: timeNow,
 		},
 		SchoolsPtr: []*TestSchool{
 			{
@@ -145,7 +147,7 @@ func TestMutationMutate(t *testing.T) {
 
 	_, err := CreateSchema(c, TestUser{})
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	defer dropAll(c)
 
@@ -154,17 +156,30 @@ func TestMutationMutate(t *testing.T) {
 
 	uids, err := tx.Mutate(&user)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 
 	assert.Len(t, uids, 9)
 
 	tx = NewTxn(c).SetCommitNow()
-	user = createTestUser()
+	duplicateUser := createTestUser()
 
-	uids, err = tx.Mutate(&user)
+	uids, err = tx.Mutate(&duplicateUser)
 	assert.Len(t, uids, 0)
 	assert.IsType(t, &UniqueError{}, err, err.Error())
+
+	result := TestUser{}
+	if err = NewReadOnlyTxn(c).Get(&result).All(2).Node(); err != nil {
+		t.Fatal(err)
+	}
+
+	// make sure children are sorted by uid
+	sortByUID := ByUID{TestSchoolList: user.Schools}
+	sort.Sort(sortByUID)
+	sortByUID = ByUID{TestSchoolList: result.Schools}
+	sort.Sort(sortByUID)
+
+	assert.Equal(t, user, result)
 }
 
 func TestMutationMutate_UpdateUnique(t *testing.T) {
@@ -273,6 +288,8 @@ func TestMutationMutate_SetEdge(t *testing.T) {
 	if err := tx.Get(&updatedUser).UID(user.UID).All(2).Node(); err != nil {
 		t.Error(err)
 	}
+	schoolInterfaceMap := updatedUser.SchoolInterface.(map[string]interface{})
+	schoolInterfaceMap["created"] = time.Time{}
 
 	jsonSchool, err := json.Marshal(user.School)
 	require.NoError(t, err)
@@ -348,7 +365,7 @@ func TestMutationUpdate(t *testing.T) {
 	sortByUID := ByUID{TestSchoolList: user.Schools}
 	sort.Sort(sortByUID)
 
-	// query the user, check if the user is correctly updated on upsert
+	// query the user, check if the user is correctly updated on update
 	tx = NewReadOnlyTxn(c)
 	var updatedUser TestUser
 	if err := tx.Get(&updatedUser).UID(user.UID).All(3).Node(); err != nil {
