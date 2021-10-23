@@ -86,7 +86,7 @@ func newMutateType(numFields int) *mutateType {
 type preparedMutation struct {
 	queries    []string
 	conditions []string
-	value      reflect.Value
+	value      map[string]interface{}
 }
 
 type mutation struct {
@@ -97,7 +97,7 @@ type mutation struct {
 	queries      []string
 	typeCache    map[string]*mutateType
 	nodeCache    map[string]reflect.Value
-	refCache     map[string]reflect.Value
+	refCache     map[string]map[string]interface{}
 	parentUids   map[string]string
 	conditions   map[string][]string
 	opcode       mutationOpCode
@@ -129,6 +129,9 @@ func (m *mutation) mutate() ([]string, error) {
 		SetJson:   setJSON,
 		CommitNow: m.txn.commitNow,
 	})
+	if err != nil {
+		return nil, errors.Wrap(err, "txn mutate failed")
+	}
 
 	postHook := setUIDHook{resp: resp}
 	err = reflectwalk.Walk(m.data, postHook)
@@ -171,7 +174,7 @@ func (m *mutation) generateRequest() error {
 	}
 
 	for i, mutation := range m.mutations {
-		setJSON, err := json.Marshal(mutation.value.Interface())
+		setJSON, err := json.Marshal(mutation.value)
 		if err != nil {
 			return errors.Wrapf(err, "marshal mutation value %d failed", i)
 		}
@@ -204,44 +207,25 @@ func getElemValue(value reflect.Value) reflect.Value {
 	return value
 }
 
-func setEdgeUID(target, edgeValue reflect.Value) {
+func (m *mutation) setEdgeUID(target map[string]interface{}, edgeValue reflect.Value) {
 	edgeValue = getElemValue(edgeValue)
-	edgeType := edgeValue.Type()
-	newEdgeValuePtr := reflect.New(edgeType)
-	newEdgeValue := newEdgeValuePtr.Elem()
-	for i := 0; i < edgeValue.NumField(); i++ {
-		field := newEdgeValue.Field(i)
-		fieldType := edgeType.Field(i)
-		if predicate := getPredicate(&fieldType); predicate == predicateUid {
-			field.Set(edgeValue.Field(i))
-			break
-		}
-	}
+	edgeMutateType := m.typeCache[edgeValue.Type().String()]
 
-	if target.Kind() == reflect.Ptr {
-		target.Set(newEdgeValuePtr)
-	} else {
-		target.Set(newEdgeValue)
-	}
+	target[predicateUid] = edgeValue.Field(edgeMutateType.uidIndex).String()
 }
 
 // addToRefMap adds a reference to an edge, for easier updating reference to edge uids on upsert
-func (m *mutation) addToRefMap(edge reflect.Value) {
-	edge = getElemValue(edge)
-	edgeType := m.typeCache[edge.Type().String()]
-	uid := edge.Field(edgeType.uidIndex).String()
+func (m *mutation) addToRefMap(edge map[string]interface{}) {
+	uid := edge[predicateUid].(string)
 	if isUIDAlias(uid) {
 		id := uid[2:]
 		m.refCache[id] = edge
 	}
 }
 
-func (m *mutation) addToParentMap(parent reflect.Value, edge reflect.Value) {
-	edge = getElemValue(edge)
-	parentType := m.typeCache[parent.Type().String()]
-	edgeType := m.typeCache[edge.Type().String()]
-	parentUID := parent.Field(parentType.uidIndex).String()
-	edgeUID := edge.Field(edgeType.uidIndex).String()
+func (m *mutation) addToParentMap(parent, edge map[string]interface{}) {
+	parentUID := parent[predicateUid].(string)
+	edgeUID := edge[predicateUid].(string)
 	if isUIDAlias(edgeUID) {
 		id := edgeUID[2:]
 		m.parentUids[id] = parentUID
@@ -252,12 +236,11 @@ func (m *mutation) addToParentMap(parent reflect.Value, edge reflect.Value) {
 func (m *mutation) setRefsToUIDFunc(id, uidFunc string) {
 	ref, ok := m.refCache[id]
 	if ok {
-		refType := m.typeCache[ref.Type().String()]
-		ref.Field(refType.uidIndex).SetString(uidFunc)
+		ref[predicateUid] = uidFunc
 	}
 }
 
-func (m *mutation) setEdge(nodeValue, edge, field reflect.Value) {
+func (m *mutation) setEdge(nodeValue, edge map[string]interface{}, field reflect.Value) {
 	fieldValue := getElemValue(field)
 	if !fieldValue.IsValid() {
 		return
@@ -265,31 +248,46 @@ func (m *mutation) setEdge(nodeValue, edge, field reflect.Value) {
 	edgeType := m.typeCache[fieldValue.Type().String()]
 	edgeID := edgeType.getID(fieldValue)
 	if isUID(edgeID) {
-		edge.Set(field)
+		copyStructToMap(fieldValue, edge)
 	} else {
-		setEdgeUID(edge, field)
+		m.setEdgeUID(edge, field)
 		m.addToRefMap(edge)
 		m.addToParentMap(nodeValue, edge)
 	}
 }
 
-func (m *mutation) copyNodeValues(nodeValue reflect.Value, field reflect.Value, schema *Schema, schemaIndex int) {
+func copyStructToMap(structVal reflect.Value, target map[string]interface{}) {
+	for i := 0; i < structVal.NumField(); i++ {
+		field := structVal.Field(i)
+		jsonTags := strings.Split(structVal.Type().Field(i).Tag.Get("json"), ",")
+		if len(jsonTags) == 0 {
+			continue
+		}
+		if len(jsonTags) == 2 && jsonTags[1] == "omitempty" && isNull(field.Interface()) {
+			continue
+		}
+		target[jsonTags[0]] = field.Interface()
+	}
+}
+
+func (m *mutation) copyNodeValues(nodeValue map[string]interface{}, field reflect.Value, schema *Schema, schemaIndex int) {
 	switch schema.Type {
 	case "[uid]":
-		edgesPlaceholder := reflect.MakeSlice(field.Type(), field.Len(), field.Cap())
-		edgesField := nodeValue.Field(schemaIndex)
-		edgesField.Set(edgesPlaceholder)
+		edgesPlaceholder := make([]map[string]interface{}, field.Len(), field.Cap())
 		for i := 0; i < field.Len(); i++ {
 			fieldEl := field.Index(i)
-			edgeEl := edgesField.Index(i)
+			edgeEl := map[string]interface{}{}
 			m.setEdge(nodeValue, edgeEl, fieldEl)
+			edgesPlaceholder[i] = edgeEl
 		}
+		nodeValue[schema.Predicate] = edgesPlaceholder
 	case "uid":
-		edge := nodeValue.Field(schemaIndex)
+		edge := map[string]interface{}{}
 		m.setEdge(nodeValue, edge, field)
+		nodeValue[schema.Predicate] = edge
 	default:
 		if field.CanSet() {
-			nodeValue.Field(schemaIndex).Set(field)
+			nodeValue[schema.Predicate] = field.Interface()
 		}
 	}
 }
@@ -331,10 +329,10 @@ func (m *mutation) generateQuery(id string, mutateType *mutateType, uidListIndex
 	return query, nil
 }
 
-func (m *mutation) updateToUIDFunc(v reflect.Value, nodeValue reflect.Value, id, uidListIndex string, uidIndex int) string {
+func (m *mutation) updateToUIDFunc(v reflect.Value, nodeValue map[string]interface{}, id, uidListIndex string, uidIndex int) string {
 	uidFunc := fmt.Sprintf("uid(%s)", uidListIndex)
 	// update uid value to uid func
-	nodeValue.Field(uidIndex).SetString(uidFunc)
+	nodeValue[predicateUid] = uidFunc
 	v.Field(uidIndex).SetString(uidFunc)
 	// update node cache to use uid func instead of uid alias
 	m.nodeCache[uidFunc] = v
@@ -361,8 +359,8 @@ func (m *mutation) generateMutation(v reflect.Value, level int) error {
 	}
 
 	id := mutateType.getID(v)
-	nodeValue := reflect.New(vType)
-	nodeValue = nodeValue.Elem()
+	// use map[string]interface as nodeValue, to prevent including empty values on parent mutations
+	nodeValue := make(map[string]interface{}, vType.NumField())
 	idFunc := id
 
 	if isUID(id) && level > 0 {
@@ -378,7 +376,7 @@ func (m *mutation) generateMutation(v reflect.Value, level int) error {
 		}
 
 		value := field.Interface()
-		if isNull(value) {
+		if schema.OmitEmpty && isNull(value) {
 			// empty/null values don't need be to processed
 			continue
 		}
@@ -595,7 +593,7 @@ func (h generateSchemaHook) StructField(p reflect.Value, field reflect.StructFie
 	i := field.Index[len(field.Index)-1]
 	fieldName := fmt.Sprintf("%s.%s", pType.Name(), field.Name)
 
-	predicate := getPredicate(&field)
+	predicate, _ := getPredicate(&field)
 	switch predicate {
 	case predicateUid:
 		uid, err := genUID(field, v)
@@ -662,8 +660,7 @@ func (h generateMutationHook) StructField(s reflect.Value, f reflect.StructField
 }
 
 type setUIDHook struct {
-	mutation *mutation
-	resp     *api.Response
+	resp *api.Response
 }
 
 func (h setUIDHook) Struct(v reflect.Value, level int) error {
@@ -685,7 +682,7 @@ func newMutation(txn *TxnContext, data interface{}) *mutation {
 		// TODO: optimize use of maps
 		nodeCache:  make(map[string]reflect.Value),
 		typeCache:  make(map[string]*mutateType),
-		refCache:   make(map[string]reflect.Value),
+		refCache:   make(map[string]map[string]interface{}),
 		conditions: make(map[string][]string),
 		parentUids: make(map[string]string),
 		request: api.Request{
@@ -715,7 +712,7 @@ func (w typeWalker) Struct(v reflect.Value, level int) error {
 		fieldVal := v.Field(i)
 		fieldName := fmt.Sprintf("%s.%s", vType.Name(), field.Name)
 
-		predicate := getPredicate(&field)
+		predicate, _ := getPredicate(&field)
 		if predicate == predicateDgraphType {
 			dgraphTag := field.Tag.Get(tagName)
 			if dgraphTag != "" {

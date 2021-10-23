@@ -65,6 +65,7 @@ type Schema struct {
 	Lang       bool
 	Noconflict bool `json:"no_conflict"`
 	Unique     bool
+	OmitEmpty  bool
 }
 
 func (s Schema) String() string {
@@ -255,16 +256,21 @@ func getSchemaType(fieldType reflect.Type) string {
 	return fieldType.Name()
 }
 
-func getPredicate(field *reflect.StructField) string {
+func getPredicate(field *reflect.StructField) (string, bool) {
 	// get field name from json tag
 	jsonTags := strings.Split(field.Tag.Get("json"), ",")
-	return jsonTags[0]
+	if len(jsonTags) == 2 {
+		return jsonTags[0], jsonTags[1] == "omitempty"
+	}
+	return jsonTags[0], false
 }
 
 func parseDgraphTag(field *reflect.StructField) (*Schema, error) {
+	predicate, omitEmpty := getPredicate(field)
 	schema := &Schema{
-		Predicate: getPredicate(field),
+		Predicate: predicate,
 		Type:      getSchemaType(field.Type),
+		OmitEmpty: omitEmpty,
 	}
 
 	dgraphTag := field.Tag.Get(tagName)
@@ -463,7 +469,7 @@ func getNodeType(dataType reflect.Type) string {
 
 	for i := dataType.NumField() - 1; i >= 0; i-- {
 		field := dataType.Field(i)
-		predicate := getPredicate(&field)
+		predicate, _ := getPredicate(&field)
 
 		if predicate == predicateDgraphType {
 			dgraphTag := field.Tag.Get(tagName)

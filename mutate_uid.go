@@ -37,10 +37,10 @@ func genUID(f reflect.StructField, v reflect.Value) (string, error) {
 		return "", nil
 	}
 
-	predicate := getPredicate(&f)
+	predicate, _ := getPredicate(&f)
 	uid := v.String()
 
-	if predicate == "uid" {
+	if predicate == predicateUid {
 		if uid != "" {
 			// if uid already set, don't generate
 			return uid, nil
@@ -60,10 +60,10 @@ func setUIDs(f reflect.StructField, v reflect.Value, uids map[string]string) err
 		return nil
 	}
 
-	predicate := getPredicate(&f)
+	predicate, _ := getPredicate(&f)
 	setUID := v.String()
 
-	if predicate != "uid" {
+	if predicate != predicateUid {
 		return nil
 	}
 
