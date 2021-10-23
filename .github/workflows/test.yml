@@ -1,0 +1,33 @@
+name: Test and coverage
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    env:
+      DGMAN_TEST_DATABASE: localhost:9080
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.17
+    
+    - name: Set up Dgraph
+      run: |
+        curl https://get.dgraph.io -sSf | bash /dev/stdin "-y"
+        dgraph zero
+        dgraph alpha
+
+    - name: Run coverage
+      run: go test -race -coverprofile=coverage.out -covermode=atomic
+    - name: Upload coverage to Codecov
+      run: bash <(curl -s https://codecov.io/bash)
+
