@@ -422,10 +422,14 @@ func (q *Query) nodes(jsonData []byte, dst interface{}) error {
 	return json.Unmarshal(dataBytes, dst)
 }
 
-// NodesAndCount return paged nodes result with the total count of the query
-func (q *Query) NodesAndCount() (count int, err error) {
+// NodesAndCount return paged nodes result with the total count of the query,
+// optional destination can be passed, otherwise bind to model.
+func (q *Query) NodesAndCount(dst ...interface{}) (count int, err error) {
 	tx := TxnContext{txn: q.tx, ctx: q.ctx}
-
+	model := q.model
+	if len(dst) > 0 {
+		model = dst[0]
+	}
 	var qr string
 	// only apply the query if the result will be cascaded
 	if q.cascade != nil {
@@ -469,7 +473,7 @@ func (q *Query) NodesAndCount() (count int, err error) {
 		return 0, nil
 	}
 
-	if err := json.Unmarshal(pagedResult.Result, q.model); err != nil {
+	if err := json.Unmarshal(pagedResult.Result, model); err != nil {
 		return 0, err
 	}
 
