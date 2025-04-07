@@ -18,27 +18,23 @@ package dgman
 
 import (
 	"context"
-	"os"
 	"strconv"
 
-	"github.com/dgraph-io/dgo/v210"
+	"github.com/dgraph-io/dgo/v240"
 	jsoniter "github.com/json-iterator/go"
 
-	"github.com/dgraph-io/dgo/v210/protos/api"
-	"google.golang.org/grpc"
+	"github.com/dgraph-io/dgo/v240/protos/api"
 )
 
 var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 func newDgraphClient() *dgo.Dgraph {
-	d, err := grpc.Dial(os.Getenv("DGMAN_TEST_DATABASE"), grpc.WithInsecure())
+	client, err := dgo.Open("dgraph://localhost:9080")
 	if err != nil {
 		panic(err)
 	}
 
-	return dgo.NewDgraphClient(
-		api.NewDgraphClient(d),
-	)
+	return client
 }
 
 func dropAll(client ...*dgo.Dgraph) {

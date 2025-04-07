@@ -24,10 +24,10 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/dgraph-io/dgo/v210/protos/api"
+	"github.com/dgraph-io/dgo/v240/protos/api"
 	"github.com/kr/logfmt"
 
-	"github.com/dgraph-io/dgo/v210"
+	"github.com/dgraph-io/dgo/v240"
 )
 
 const (

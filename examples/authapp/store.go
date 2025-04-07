@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/dgraph-io/dgo/v210"
+	"github.com/dgraph-io/dgo/v240"
 	"github.com/dolan-in/dgman/v2"
 )
 
