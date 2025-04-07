@@ -13,14 +13,14 @@ jobs:
     env:
       DGMAN_TEST_DATABASE: localhost:9080
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
       with:
         fetch-depth: 2
 
     - name: Set up Go
-      uses: actions/setup-go@v2
+      uses: actions/setup-go@v5
       with:
-        go-version: 1.17
+        go-version-file: dgo/go.mod
     
     - name: Set up Dgraph
       run: |
