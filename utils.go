@@ -19,6 +19,8 @@ package dgman
 import (
 	"context"
 	"strconv"
+	"time"
+	"unsafe"
 
 	"github.com/dgraph-io/dgo/v240"
 	jsoniter "github.com/json-iterator/go"
@@ -81,4 +83,25 @@ func (s set) Remove(value string) {
 func (s set) Has(value string) bool {
 	_, c := s[value]
 	return c
+}
+
+// timeEncoder is a custom JSON encoder for time.Time values
+type timeEncoder struct{}
+
+func (e *timeEncoder) IsEmpty(ptr unsafe.Pointer) bool {
+	return (*time.Time)(ptr).IsZero()
+}
+
+// Encode encodes a time.Time value as a JSON string if not a "Zero" time
+func (e *timeEncoder) Encode(ptr unsafe.Pointer, stream *jsoniter.Stream) {
+	t := *(*time.Time)(ptr)
+	if t.IsZero() {
+		stream.WriteNil()
+	} else {
+		stream.WriteString(t.Format(time.RFC3339))
+	}
+}
+
+func init() {
+	jsoniter.RegisterTypeEncoder("time.Time", &timeEncoder{})
 }
