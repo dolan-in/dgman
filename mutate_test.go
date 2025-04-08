@@ -30,7 +30,7 @@ type EmbedTime struct {
 }
 
 func (e EmbedTime) SchemaType() string {
-	return "dateTime"
+	return "datetime"
 }
 
 type TestUser struct {

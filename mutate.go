@@ -263,7 +263,7 @@ func copyStructToMap(structVal reflect.Value, target map[string]interface{}) {
 		if len(jsonTags) == 0 {
 			continue
 		}
-		if len(jsonTags) == 2 && jsonTags[1] == "omitempty" && isNull(field.Interface()) {
+		if len(jsonTags) == 2 && (jsonTags[1] == "omitempty" || jsonTags[1] == "omitzero") && isNull(field.Interface()) {
 			continue
 		}
 		target[jsonTags[0]] = field.Interface()
