@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/dgraph-io/dgo/v240"
+	"github.com/dgraph-io/dgo/v250"
 	"github.com/dolan-in/dgman/v2"
 )
 
@@ -40,7 +40,7 @@ type UserStore interface {
 }
 
 type userStore struct {
-	c *dgo.Dgraph
+	c dgo.Client
 }
 
 func (s *userStore) Create(ctx context.Context, user *User) error {

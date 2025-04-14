@@ -53,7 +53,7 @@ type TestSchool struct {
 	EstYear    int           `json:"estYear,omitempty"`
 	Location   *TestLocation `json:"location,omitempty"`
 	DType      []string      `json:"dgraph.type,omitempty"`
-	Created    time.Time     `json:"created,omitempty"` // Issue #95, make sure time is not empty when value sent on nested mutation
+	Created    time.Time     `json:"created,omitzero"` // Issue #95, make sure time is not empty when value sent on nested mutation
 }
 
 type TestSchoolList []TestSchool

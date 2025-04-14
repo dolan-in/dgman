@@ -4,13 +4,13 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/dgraph-io/dgo/v240"
-	"github.com/dgraph-io/dgo/v240/protos/api"
+	"github.com/dgraph-io/dgo/v250"
+	"github.com/dgraph-io/dgo/v250/protos/api"
 	"github.com/dolan-in/dgman/v2"
 	"google.golang.org/grpc"
 )
 
-func newDgraphClient() *dgo.Dgraph {
+func newDgraphClient() dgo.Client {
 	d, err := grpc.Dial("localhost:9080", grpc.WithInsecure())
 	if err != nil {
 		panic(err)
@@ -21,7 +21,7 @@ func newDgraphClient() *dgo.Dgraph {
 	)
 }
 
-func newApi(dgoClient *dgo.Dgraph) *userAPI {
+func newApi(dgoClient dgo.Client) *userAPI {
 	return &userAPI{
 		store: &userStore{c: dgoClient},
 	}

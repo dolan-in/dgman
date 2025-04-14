@@ -25,10 +25,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dgraph-io/dgo/v240/protos/api"
+	"github.com/dgraph-io/dgo/v250"
+	"github.com/dgraph-io/dgo/v250/protos/api"
 	"github.com/pkg/errors"
-
-	"github.com/dgraph-io/dgo/v240"
 )
 
 var (
@@ -43,7 +42,7 @@ type ParamFormatter interface {
 
 type QueryBlock struct {
 	ctx         context.Context
-	tx          *dgo.Txn
+	tx          dgo.Transaction
 	paramString string
 	vars        map[string]string
 	blocks      []*Query
@@ -182,7 +181,7 @@ type order struct {
 
 type Query struct {
 	ctx         context.Context
-	tx          *dgo.Txn
+	tx          dgo.Transaction
 	model       interface{}
 	name        string
 	as          string

@@ -19,7 +19,7 @@ package dgman
 import (
 	"context"
 
-	"github.com/dgraph-io/dgo/v240"
+	"github.com/dgraph-io/dgo/v250"
 )
 
 // TxnInterface provides interface for dgman.TxnContext
@@ -28,7 +28,7 @@ type TxnInterface interface {
 	Discard() error
 	SetCommitNow() *TxnContext
 	BestEffort() *TxnContext
-	Txn() *dgo.Txn
+	Txn() dgo.Transaction
 	WithContext(context.Context)
 	Context() context.Context
 	Mutate(data interface{}) ([]string, error)

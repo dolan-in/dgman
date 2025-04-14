@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dolan-in/dgman/v2"
-
-	"github.com/dgraph-io/dgo/v240"
-
-	"github.com/dgraph-io/dgo/v240/protos/api"
+	"github.com/dgraph-io/dgo/v250"
+	"github.com/dgraph-io/dgo/v250/protos/api"
 	"google.golang.org/grpc"
+
+	"github.com/dolan-in/dgman/v2"
 )
 
 // User is a node, nodes have a uid field
@@ -49,7 +48,7 @@ type GeoLoc struct {
 	Coord []float64 `json:"coordinates"`
 }
 
-func dropAll(c *dgo.Dgraph) {
+func dropAll(c dgo.Client) {
 	err := c.Alter(context.Background(), &api.Operation{DropAll: true})
 	if err != nil {
 		panic(err)
