@@ -24,8 +24,8 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/dgraph-io/dgo/v250"
-	"github.com/dgraph-io/dgo/v250/protos/api"
+	"github.com/dgraph-io/dgo/v240"
+	"github.com/dgraph-io/dgo/v240/protos/api"
 	"github.com/kr/logfmt"
 )
 
@@ -331,7 +331,7 @@ func parseStructTag(tag string) (*rawSchema, error) {
 	return &schema, nil
 }
 
-func fetchExistingSchema(c dgo.Client) ([]*Schema, error) {
+func fetchExistingSchema(c *dgo.Dgraph) ([]*Schema, error) {
 	schemaQuery := `
 		schema {
 			type
@@ -373,7 +373,7 @@ type typeQueryResponse struct {
 	} `json:"types"`
 }
 
-func fetchExistingTypes(c dgo.Client, typeMap TypeMap) (TypeMap, error) {
+func fetchExistingTypes(c *dgo.Dgraph, typeMap TypeMap) (TypeMap, error) {
 	// get keys of typeMap
 	keys := make([]string, 0, len(typeMap))
 	for key := range typeMap {
@@ -405,7 +405,7 @@ func fetchExistingTypes(c dgo.Client, typeMap TypeMap) (TypeMap, error) {
 	return types, nil
 }
 
-func cleanExistingSchema(c dgo.Client, schemaMap SchemaMap) error {
+func cleanExistingSchema(c *dgo.Dgraph, schemaMap SchemaMap) error {
 	existingSchema, err := fetchExistingSchema(c)
 	if err != nil {
 		return err
@@ -426,7 +426,7 @@ func cleanExistingSchema(c dgo.Client, schemaMap SchemaMap) error {
 
 // CreateSchema generate indexes, schema, and types from struct models,
 // returns the created schema map and types, does not update duplicate/conflict predicates.
-func CreateSchema(c dgo.Client, models ...interface{}) (*TypeSchema, error) {
+func CreateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
 	typeSchema := NewTypeSchema()
 	typeSchema.Marshal("", models...)
 
@@ -446,7 +446,7 @@ func CreateSchema(c dgo.Client, models ...interface{}) (*TypeSchema, error) {
 
 // MutateSchema generate indexes and schema from struct models,
 // attempt updates for type, schema, and indexes.
-func MutateSchema(c dgo.Client, models ...interface{}) (*TypeSchema, error) {
+func MutateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
 	typeSchema := NewTypeSchema()
 	typeSchema.Marshal("", models...)
 

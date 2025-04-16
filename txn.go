@@ -19,13 +19,13 @@ package dgman
 import (
 	"context"
 
-	"github.com/dgraph-io/dgo/v250"
+	"github.com/dgraph-io/dgo/v240"
 	"github.com/pkg/errors"
 )
 
 // TxnContext is dgo transaction coupled with context
 type TxnContext struct {
-	txn       dgo.Transaction
+	txn       *dgo.Txn
 	ctx       context.Context
 	commitNow bool
 }
@@ -47,7 +47,7 @@ func (t *TxnContext) BestEffort() *TxnContext {
 }
 
 // Txn returns the dgo transaction
-func (t *TxnContext) Txn() dgo.Transaction {
+func (t *TxnContext) Txn() *dgo.Txn {
 	return t.txn
 }
 
@@ -148,7 +148,7 @@ func (t *TxnContext) Query(query ...*Query) *QueryBlock {
 }
 
 // NewTxnContext creates a new transaction coupled with a context
-func NewTxnContext(ctx context.Context, c dgo.Client) *TxnContext {
+func NewTxnContext(ctx context.Context, c *dgo.Dgraph) *TxnContext {
 	return &TxnContext{
 		txn: c.NewTxn(),
 		ctx: ctx,
@@ -156,12 +156,12 @@ func NewTxnContext(ctx context.Context, c dgo.Client) *TxnContext {
 }
 
 // NewTxn creates a new transaction
-func NewTxn(c dgo.Client) *TxnContext {
+func NewTxn(c *dgo.Dgraph) *TxnContext {
 	return NewTxnContext(context.Background(), c)
 }
 
 // NewReadOnlyTxnContext creates a new read only transaction coupled with a context
-func NewReadOnlyTxnContext(ctx context.Context, c dgo.Client) *TxnContext {
+func NewReadOnlyTxnContext(ctx context.Context, c *dgo.Dgraph) *TxnContext {
 	return &TxnContext{
 		txn: c.NewReadOnlyTxn(),
 		ctx: ctx,
@@ -169,6 +169,6 @@ func NewReadOnlyTxnContext(ctx context.Context, c dgo.Client) *TxnContext {
 }
 
 // NewReadOnlyTxn creates a new read only transaction
-func NewReadOnlyTxn(c dgo.Client) *TxnContext {
+func NewReadOnlyTxn(c *dgo.Dgraph) *TxnContext {
 	return NewReadOnlyTxnContext(context.Background(), c)
 }

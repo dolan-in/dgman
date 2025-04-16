@@ -23,7 +23,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dgraph-io/dgo/v250/protos/api"
+	"github.com/dgraph-io/dgo/v240/protos/api"
 	"github.com/dolan-in/reflectwalk"
 	"github.com/pkg/errors"
 )

@@ -22,14 +22,14 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/dgraph-io/dgo/v250"
-	"github.com/dgraph-io/dgo/v250/protos/api"
+	"github.com/dgraph-io/dgo/v240"
+	"github.com/dgraph-io/dgo/v240/protos/api"
 	jsoniter "github.com/json-iterator/go"
 )
 
 var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
-func newDgraphClient() dgo.Client {
+func newDgraphClient() *dgo.Dgraph {
 	client, err := dgo.Open("dgraph://localhost:9080")
 	if err != nil {
 		panic(err)
@@ -38,8 +38,8 @@ func newDgraphClient() dgo.Client {
 	return client
 }
 
-func dropAll(client ...dgo.Client) {
-	var c dgo.Client
+func dropAll(client ...*dgo.Dgraph) {
+	var c *dgo.Dgraph
 	if len(client) > 0 {
 		c = client[0]
 	} else {
