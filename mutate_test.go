@@ -38,6 +38,8 @@ type TestUser struct {
 	Name            string        `json:"name,omitempty"`
 	Username        string        `json:"username,omitempty" dgraph:"index=term unique"`
 	Email           string        `json:"email,omitempty" dgraph:"index=term unique"`
+	Temp            float64       `json:"temperature,omitempty"`
+	ZeroTest        float64       `json:"zeroTest,omitempty"`
 	Schools         []TestSchool  `json:"schools,omitempty" dgraph:"count"`
 	SchoolsPtr      []*TestSchool `json:"schoolsPtr,omitempty" dgraph:"count"`
 	School          *TestSchool   `json:"school,omitempty"`
@@ -81,6 +83,8 @@ func createTestUser() TestUser {
 		Name:     "wildan",
 		Username: "wildan2711",
 		Email:    "wildan2711@gmail.com",
+		Temp:     37.5,
+		ZeroTest: 0.0,
 		School: &TestSchool{
 			Name:       "BSS",
 			Identifier: "bss",
@@ -138,8 +142,16 @@ func TestMutationMutateBasic(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-
 	assert.Len(t, uids, 9)
+
+	tx = NewReadOnlyTxn(c)
+	var result TestUser
+	err = tx.Get(&result).UID(user.UID).Node()
+	if err != nil {
+		t.Error(err)
+	}
+	assert.Equal(t, user.Temp, result.Temp)
+	assert.Equal(t, 0.0, result.ZeroTest)
 }
 
 func TestMutationMutate(t *testing.T) {
