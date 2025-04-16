@@ -1,7 +1,7 @@
 module github.com/dolan-in/dgman/v2
 
 require (
-	github.com/dgraph-io/dgo/v250 v250.0.0-20250408160036-08ce38a1dd09
+	github.com/dgraph-io/dgo/v240 v240.2.0
 	github.com/dolan-in/reflectwalk v1.0.2-0.20210101124621-dc2073a29d71
 	github.com/json-iterator/go v1.1.12
 	github.com/kr/logfmt v0.0.0-20140226030751-b84e30acd515
