@@ -17,6 +17,7 @@
 package dgman
 
 import (
+	"math/big"
 	"sort"
 	"testing"
 	"time"
@@ -40,6 +41,7 @@ type TestUser struct {
 	Email           string        `json:"email,omitempty" dgraph:"index=term unique"`
 	Temp            float64       `json:"temperature,omitempty"`
 	ZeroTest        float64       `json:"zeroTest,omitempty"`
+	Amount          *big.Float    `json:"amount,omitempty" dgraph:"index=bigfloat"`
 	Schools         []TestSchool  `json:"schools,omitempty" dgraph:"count"`
 	SchoolsPtr      []*TestSchool `json:"schoolsPtr,omitempty" dgraph:"count"`
 	School          *TestSchool   `json:"school,omitempty"`
@@ -85,6 +87,7 @@ func createTestUser() TestUser {
 		Email:    "wildan2711@gmail.com",
 		Temp:     37.5,
 		ZeroTest: 0.0,
+		Amount:   big.NewFloat(100.556),
 		School: &TestSchool{
 			Name:       "BSS",
 			Identifier: "bss",
@@ -143,15 +146,6 @@ func TestMutationMutateBasic(t *testing.T) {
 		t.Error(err)
 	}
 	assert.Len(t, uids, 9)
-
-	tx = NewReadOnlyTxn(c)
-	var result TestUser
-	err = tx.Get(&result).UID(user.UID).Node()
-	if err != nil {
-		t.Error(err)
-	}
-	assert.Equal(t, user.Temp, result.Temp)
-	assert.Equal(t, 0.0, result.ZeroTest)
 }
 
 func TestMutationMutate(t *testing.T) {
@@ -192,6 +186,49 @@ func TestMutationMutate(t *testing.T) {
 	sort.Sort(sortByUID)
 
 	assert.Equal(t, user, result)
+}
+
+func TestMutationFloats(t *testing.T) {
+	c := newDgraphClient()
+
+	_, err := CreateSchema(c, TestUser{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dropAll(c)
+
+	tx := NewTxn(c).SetCommitNow()
+	user := createTestUser()
+
+	uids, err := tx.Mutate(&user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Len(t, uids, 9)
+
+	tx = NewReadOnlyTxn(c)
+	var result TestUser
+	err = tx.Get(&result).UID(user.UID).Node()
+	if err != nil {
+		t.Error(err)
+	}
+	assert.Equal(t, user.Temp, result.Temp)
+	assert.Equal(t, 0.0, result.ZeroTest)
+
+	// Compare big.Float values properly using their comparison methods
+	expectedAmount := big.NewFloat(100.556)
+	// Option 1: Compare with Cmp method and tolerance
+	diff := new(big.Float).Sub(result.Amount, expectedAmount)
+	diff.Abs(diff)
+	tolerance := big.NewFloat(0.0001)
+	assert.True(t, diff.Cmp(tolerance) < 0,
+		"Expected %v but got %v, difference: %v",
+		expectedAmount.Text('f', 6), result.Amount.Text('f', 6), diff.Text('f', 6))
+
+	// Option 2: Compare string representations with specific precision
+	assert.Equal(t, expectedAmount.Text('f', 3), result.Amount.Text('f', 3),
+		"Float values should be equal when comparing with precision of 3 decimal places")
+
 }
 
 func TestMutationMutate_UpdateUnique(t *testing.T) {

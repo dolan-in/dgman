@@ -17,6 +17,7 @@
 package dgman
 
 import (
+	"math/big"
 	"testing"
 	"time"
 
@@ -48,6 +49,8 @@ type User struct {
 	ReviewDe   string       `json:"review@de"` // should not be parsed
 	Height     *int         `json:"height,omitempty"`
 	IsAdmin    bool         `json:"is_admin,omitempty"`
+	Temp       float64      `json:"temperature,omitempty"`
+	Amount     *big.Float     `json:"amount,omitempty" dgraph:"index=bigfloat"`
 	CustomTime CustomTime   `json:"custom_time,omitempty"`
 	Dob        *time.Time   `json:"dob,omitempty"`
 	Status     EnumType     `json:"status,omitempty" dgraph:"type=int"`
@@ -72,7 +75,7 @@ type Anonymous struct {
 
 type School struct {
 	UID      string   `json:"uid,omitempty"`
-	Name     string   `json:"name,omitempty"`
+	Name     string   `json:"name,omitempty" dgraph:"index=term"`
 	Location *GeoLoc  `json:"location,omitempty" dgraph:"type=geo"` // test passing type
 	DType    []string `json:"dgraph.type"`
 }
@@ -111,6 +114,8 @@ func TestMarshalSchema(t *testing.T) {
 	assert.Equal(t, "custom_time: datetime .", schema["custom_time"].String())
 	assert.Equal(t, "dob: datetime .", schema["dob"].String())
 	assert.Equal(t, "is_admin: bool .", schema["is_admin"].String())
+	assert.Equal(t, "temperature: float .", schema["temperature"].String())
+	assert.Equal(t, "amount: bigfloat @index(bigfloat) .", schema["amount"].String())
 	assert.Equal(t, "created: datetime .", schema["created"].String())
 	assert.Equal(t, "dates: [datetime] .", schema["dates"].String())
 	assert.Equal(t, "dates_ptr: [datetime] .", schema["dates_ptr"].String())

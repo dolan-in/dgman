@@ -18,6 +18,7 @@ package dgman
 
 import (
 	"context"
+	"math/big"
 	"strconv"
 	"time"
 	"unsafe"
@@ -27,7 +28,11 @@ import (
 	jsoniter "github.com/json-iterator/go"
 )
 
-var json = jsoniter.ConfigCompatibleWithStandardLibrary
+var json = jsoniter.Config{
+	EscapeHTML:             true,
+	SortMapKeys:            true,
+	ValidateJsonRawMessage: true,
+}.Froze()
 
 func newDgraphClient() *dgo.Dgraph {
 	client, err := dgo.Open("dgraph://localhost:9080")
@@ -101,6 +106,52 @@ func (e *timeEncoder) Encode(ptr unsafe.Pointer, stream *jsoniter.Stream) {
 	}
 }
 
+type bigFloatEncoder struct{}
+
+func (e *bigFloatEncoder) IsEmpty(ptr unsafe.Pointer) bool {
+	f := (*big.Float)(ptr)
+	return f == nil || f.Sign() == 0
+}
+
+func (e *bigFloatEncoder) Encode(ptr unsafe.Pointer, stream *jsoniter.Stream) {
+	f := (*big.Float)(ptr)
+	if f == nil || f.Sign() == 0 {
+		stream.WriteNil()
+	} else {
+		stream.WriteString(f.Text('f', -1))
+	}
+}
+
+type bigFloatDecoder struct{}
+
+func (d *bigFloatDecoder) Decode(ptr unsafe.Pointer, iter *jsoniter.Iterator) {
+	switch iter.WhatIsNext() {
+	case jsoniter.NilValue:
+		iter.ReadNil()
+		*(*big.Float)(ptr) = *big.NewFloat(0)
+	case jsoniter.StringValue:
+		str := iter.ReadString()
+		f, _, err := big.ParseFloat(str, 10, 0, big.ToNearestEven)
+		if err != nil {
+			iter.ReportError("decode big.Float", err.Error())
+			return
+		}
+		*(*big.Float)(ptr) = *f
+	case jsoniter.NumberValue:
+		str := iter.ReadNumber().String()
+		f, _, err := big.ParseFloat(str, 10, 0, big.ToNearestEven)
+		if err != nil {
+			iter.ReportError("decode big.Float", err.Error())
+			return
+		}
+		*(*big.Float)(ptr) = *f
+	default:
+		iter.ReportError("decode big.Float", "invalid value type")
+	}
+}
+
 func init() {
 	jsoniter.RegisterTypeEncoder("time.Time", &timeEncoder{})
+	jsoniter.RegisterTypeEncoder("big.Float", &bigFloatEncoder{})
+	jsoniter.RegisterTypeDecoder("big.Float", &bigFloatDecoder{})
 }

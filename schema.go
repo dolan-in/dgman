@@ -21,8 +21,10 @@ import (
 
 	"fmt"
 	"log"
+	"math/big"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/dgraph-io/dgo/v240"
 	"github.com/dgraph-io/dgo/v240/protos/api"
@@ -237,10 +239,11 @@ func getSchemaType(fieldType reflect.Type) string {
 		sliceType := fieldType.Elem()
 		return fmt.Sprintf("[%s]", getSchemaType(sliceType))
 	case reflect.Struct:
-		switch fieldType.PkgPath() {
-		case "time":
-			// golang std time
+		switch fieldType {
+		case reflect.TypeOf(time.Time{}):
 			return "datetime"
+		case reflect.TypeOf(big.Float{}):
+			return "bigfloat"
 		default:
 			// one-to-one relation
 			return "uid"
