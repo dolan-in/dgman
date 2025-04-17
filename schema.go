@@ -18,11 +18,11 @@ package dgman
 
 import (
 	"context"
-
 	"fmt"
 	"log"
 	"math/big"
 	"reflect"
+	"regexp"
 	"strings"
 	"time"
 
@@ -67,6 +67,7 @@ type Schema struct {
 	Noconflict bool `json:"no_conflict"`
 	Unique     bool
 	OmitEmpty  bool
+	Metric     string
 }
 
 func (s Schema) String() string {
@@ -76,7 +77,16 @@ func (s Schema) String() string {
 	}
 	schema := fmt.Sprintf("%s: %s ", s.Predicate, t)
 	if s.Index {
-		schema += fmt.Sprintf("@index(%s) ", strings.Join(s.Tokenizer, ","))
+		if s.Type == "float32vector" {
+			// Special case for vector fields with hnsw index
+			metric := s.Metric
+			if metric == "" {
+				metric = "cosine" // Default to cosine if no metric specified
+			}
+			schema += fmt.Sprintf("@index(hnsw(metric:\"%s\")) ", metric)
+		} else {
+			schema += fmt.Sprintf("@index(%s) ", strings.Join(s.Tokenizer, ","))
+		}
 	}
 	if s.Upsert || s.Unique {
 		schema += "@upsert "
@@ -92,6 +102,9 @@ func (s Schema) String() string {
 	}
 	if s.Noconflict {
 		schema += "@noconflict "
+	}
+	if s.Metric != "" {
+		schema += fmt.Sprintf("@metric(%s) ", s.Metric)
 	}
 	return schema + "."
 }
@@ -244,6 +257,8 @@ func getSchemaType(fieldType reflect.Type) string {
 			return "datetime"
 		case reflect.TypeOf(big.Float{}):
 			return "bigfloat"
+		case reflect.TypeOf(VectorFloat32{}):
+			return "float32vector"
 		default:
 			// one-to-one relation
 			return "uid"
@@ -301,7 +316,32 @@ func parseDgraphTag(field *reflect.StructField) (*Schema, error) {
 		}
 
 		if schema.Index {
-			schema.Tokenizer = strings.Split(dgraphProps.Index, ",")
+			// Special handling for hnsw(index) with metric, e.g. hnsw(metric="cosine")
+			if strings.HasPrefix(dgraphProps.Index, "hnsw(") && strings.HasSuffix(dgraphProps.Index, ")") {
+				params := dgraphProps.Index[len("hnsw(") : len(dgraphProps.Index)-1]
+				metric := "cosine" // default
+
+				// Use regex to extract metric value - handles various formats:
+				// metric="cosine", metric='cosine', metric=cosine
+				re := regexp.MustCompile(`metric\s*=\s*["']?([^"')]+)["']?`)
+				matches := re.FindStringSubmatch(params)
+				if len(matches) > 1 {
+					metric = matches[1]
+					// Clean up any potential escape characters
+					metric = strings.ReplaceAll(metric, "\\", "")
+				}
+
+				switch metric {
+				case "cosine", "euclidean", "dotproduct":
+				default:
+					return nil, fmt.Errorf("invalid metric: %s", metric)
+				}
+
+				schema.Tokenizer = []string{"hnsw"}
+				schema.Metric = metric
+			} else {
+				schema.Tokenizer = strings.Split(dgraphProps.Index, ",")
+			}
 		}
 	}
 	return schema, nil
@@ -364,6 +404,9 @@ func fetchExistingSchema(c *dgo.Dgraph) ([]*Schema, error) {
 		return nil, err
 	}
 
+	if false {
+		fmt.Println(schemas.Schema)
+	}
 	return schemas.Schema, nil
 }
 
@@ -416,6 +459,12 @@ func cleanExistingSchema(c *dgo.Dgraph, schemaMap SchemaMap) error {
 
 	for _, schema := range existingSchema {
 		if s, exists := schemaMap[schema.Predicate]; exists {
+			// Special handling for float32vector fields - allow adding HNSW index
+			if s.Type == "float32vector" && schema.Type == "float32vector" && s.Index && !schema.Index {
+				// This is a vector field we're trying to add an index to - allow it
+				continue
+			}
+
 			if s.String() != schema.String() {
 				log.Printf("existing schema %s, already defined as \"%s\", trying to install \"%s\"\n", schema.Predicate, schema.String(), s.String())
 			}
@@ -436,6 +485,10 @@ func CreateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
 	err := cleanExistingSchema(c, typeSchema.Schema)
 	if err != nil {
 		return nil, err
+	}
+
+	if false {
+		fmt.Println(typeSchema.String())
 	}
 
 	alterString := typeSchema.String()

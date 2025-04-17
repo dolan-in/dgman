@@ -38,32 +38,33 @@ type GeoLoc struct {
 }
 
 type User struct {
-	UID        string       `json:"uid,omitempty"`
-	Name       string       `json:"name,omitempty" dgraph:"index=term"`
-	Username   string       `json:"username,omitempty" dgraph:"index=hash unique"`
-	Email      string       `json:"email,omitempty" dgraph:"index=hash unique"`
-	Noconflict string       `json:"noconflict,omitempty" dgraph:"index=hash noconflict"`
-	Password   string       `json:"password,omitempty"`
-	Review     string       `json:"review" dgraph:"index=fulltext lang"`
-	ReviewEn   string       `json:"review@en"` // should not be parsed
-	ReviewDe   string       `json:"review@de"` // should not be parsed
-	Height     *int         `json:"height,omitempty"`
-	IsAdmin    bool         `json:"is_admin,omitempty"`
-	Temp       float64      `json:"temperature,omitempty"`
-	Amount     *big.Float     `json:"amount,omitempty" dgraph:"index=bigfloat"`
-	CustomTime CustomTime   `json:"custom_time,omitempty"`
-	Dob        *time.Time   `json:"dob,omitempty"`
-	Status     EnumType     `json:"status,omitempty" dgraph:"type=int"`
-	Created    *time.Time   `json:"created,omitempty"`
-	Dates      []time.Time  `json:"dates,omitempty"`
-	DatesPtr   []*time.Time `json:"dates_ptr,omitempty"`
-	Mobiles    []string     `json:"mobiles,omitempty"`
-	Schools    []School     `json:"schools,omitempty" dgraph:"count"`
-	SchoolsPtr []*School    `json:"schools_ptr,omitempty" dgraph:"count reverse"`
-	School     School       `json:"school" dgraph:"count reverse"`
-	SchoolPtr  *School      `json:"school_ptr" dgraph:"count reverse"`
-	Friends    []User       `json:"friends"`             // test recursive, will panic if fail
-	Object     interface{}  `json:"object" dgraph:"uid"` // test interface, will panic if fail
+	UID        string        `json:"uid,omitempty"`
+	Name       string        `json:"name,omitempty" dgraph:"index=term"`
+	Username   string        `json:"username,omitempty" dgraph:"index=hash unique"`
+	Email      string        `json:"email,omitempty" dgraph:"index=hash unique"`
+	Noconflict string        `json:"noconflict,omitempty" dgraph:"index=hash noconflict"`
+	Password   string        `json:"password,omitempty"`
+	Review     string        `json:"review" dgraph:"index=fulltext lang"`
+	ReviewEn   string        `json:"review@en"` // should not be parsed
+	ReviewDe   string        `json:"review@de"` // should not be parsed
+	Height     *int          `json:"height,omitempty"`
+	IsAdmin    bool          `json:"is_admin,omitempty"`
+	Temp       float64       `json:"temperature,omitempty"`
+	Amount     *big.Float    `json:"amount,omitempty" dgraph:"index=bigfloat"`
+	Vector     VectorFloat32 `json:"vector,omitempty" dgraph:"index=hnsw(metric=\"cosine\")"`
+	CustomTime CustomTime    `json:"custom_time,omitempty"`
+	Dob        *time.Time    `json:"dob,omitempty"`
+	Status     EnumType      `json:"status,omitempty" dgraph:"type=int"`
+	Created    *time.Time    `json:"created,omitempty"`
+	Dates      []time.Time   `json:"dates,omitempty"`
+	DatesPtr   []*time.Time  `json:"dates_ptr,omitempty"`
+	Mobiles    []string      `json:"mobiles,omitempty"`
+	Schools    []School      `json:"schools,omitempty" dgraph:"count"`
+	SchoolsPtr []*School     `json:"schools_ptr,omitempty" dgraph:"count reverse"`
+	School     School        `json:"school" dgraph:"count reverse"`
+	SchoolPtr  *School       `json:"school_ptr" dgraph:"count reverse"`
+	Friends    []User        `json:"friends"`             // test recursive, will panic if fail
+	Object     interface{}   `json:"object" dgraph:"uid"` // test interface, will panic if fail
 	*Anonymous
 	DType []string `json:"dgraph.type"`
 }
@@ -116,6 +117,7 @@ func TestMarshalSchema(t *testing.T) {
 	assert.Equal(t, "is_admin: bool .", schema["is_admin"].String())
 	assert.Equal(t, "temperature: float .", schema["temperature"].String())
 	assert.Equal(t, "amount: bigfloat @index(bigfloat) .", schema["amount"].String())
+	assert.Equal(t, "vector: float32vector @index(hnsw(metric:\"cosine\")) .", schema["vector"].String())
 	assert.Equal(t, "created: datetime .", schema["created"].String())
 	assert.Equal(t, "dates: [datetime] .", schema["dates"].String())
 	assert.Equal(t, "dates_ptr: [datetime] .", schema["dates_ptr"].String())
