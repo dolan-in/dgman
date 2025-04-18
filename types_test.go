@@ -17,6 +17,7 @@
 package dgman
 
 import (
+	"context"
 	"math/big"
 	"testing"
 
@@ -190,4 +191,72 @@ func TestVectorMutationEuclidean(t *testing.T) {
 	for i, val := range item.Vector.Values {
 		assert.InDelta(t, val, result.Vector.Values[i], 0.0001)
 	}
+}
+
+func TestVectorSimilaritySearch(t *testing.T) {
+	c := newDgraphClient()
+	_, err := CreateSchema(c, TestItem{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dropAll(c)
+
+	// Insert several items with different vectors
+	items := []TestItem{
+		{
+			Name:        "Item A",
+			Identifier:  "item-a",
+			Description: "First vector",
+			Vector:      &VectorFloat32{Values: []float32{0.1, 0.2, 0.3, 0.4, 0.5}},
+		},
+		{
+			Name:        "Item B",
+			Identifier:  "item-b",
+			Description: "Second vector",
+			Vector:      &VectorFloat32{Values: []float32{0.5, 0.4, 0.3, 0.2, 0.1}},
+		},
+		{
+			Name:        "Item C",
+			Identifier:  "item-c",
+			Description: "Third vector",
+			Vector:      &VectorFloat32{Values: []float32{1.0, 1.0, 1.0, 1.0, 1.0}},
+		},
+	}
+
+	tx := NewTxn(c)
+	for i := range items {
+		_, err := tx.MutateBasic(&items[i])
+		require.NoError(t, err)
+		assert.NotEmpty(t, items[i].UID)
+	}
+	err = tx.Commit()
+	require.NoError(t, err)
+
+	// Query with a vector close to Item B
+	vectorVar := "[0.51, 0.39, 0.29, 0.19, 0.09]"
+	dql := `query similar($vec: string) {
+		similar(func: similar_to(vector, 1, $vec)) {
+			uid
+			name
+			identifier
+			description
+			vector
+		}
+	}`
+
+	txn := c.NewReadOnlyTxn()
+	resp, err := txn.QueryWithVars(context.Background(), dql, map[string]string{"$vec": vectorVar})
+	require.NoError(t, err)
+
+	type resultStruct struct {
+		Similar []TestItem `json:"similar"`
+	}
+	var result resultStruct
+	err = json.Unmarshal(resp.GetJson(), &result)
+	require.NoError(t, err)
+	assert.Len(t, result.Similar, 1)
+
+	// The closest should be Item B
+	assert.Equal(t, "Item B", result.Similar[0].Name)
+	assert.Equal(t, "item-b", result.Similar[0].Identifier)
 }
