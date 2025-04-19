@@ -257,3 +257,15 @@ func Test_fetchExistingTypes(t *testing.T) {
 
 	assert.Len(t, types, 2)
 }
+
+func TestMissingDType(t *testing.T) {
+	c := newDgraphClient()
+	defer dropAll(c)
+
+	type SchemaTest struct {
+		UID  string `json:"uid,omitempty"`
+		Name string `json:"name,omitempty"`
+	}
+	_, err := CreateSchema(c, &SchemaTest{})
+	require.Error(t, err, "expected error due to missing required field DType []string `json:\"dgraph.type\"` in type SchemaTest")
+}

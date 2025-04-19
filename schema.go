@@ -482,6 +482,26 @@ func CreateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
 	typeSchema := NewTypeSchema()
 	typeSchema.Marshal("", models...)
 
+	// Check for DType field in each model
+	for _, model := range models {
+		modelType := reflect.TypeOf(model)
+		if modelType.Kind() == reflect.Ptr {
+			modelType = modelType.Elem()
+		}
+		foundDType := false
+		for i := 0; i < modelType.NumField(); i++ {
+			field := modelType.Field(i)
+			jsonTag := field.Tag.Get("json")
+			if strings.HasPrefix(jsonTag, "dgraph.type") {
+				foundDType = true
+				break
+			}
+		}
+		if !foundDType {
+			return nil, fmt.Errorf("missing required field DType []string `json:\"dgraph.type\"` in type %s", modelType.Name())
+		}
+	}
+
 	err := cleanExistingSchema(c, typeSchema.Schema)
 	if err != nil {
 		return nil, err
