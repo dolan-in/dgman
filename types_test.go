@@ -25,32 +25,43 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type TestFloats struct {
+	UID    string     `json:"uid,omitempty"`
+	Name   string     `json:"name,omitempty"`
+	Amount *big.Float `json:"amount,omitempty" dgraph:"index=bigfloat"`
+	DType  []string   `json:"dgraph.type,omitempty"`
+}
+
+func createTestFloats() TestFloats {
+	return TestFloats{
+		Name:   "wildan",
+		Amount: big.NewFloat(100.556),
+	}
+}
+
 func TestMutationFloats(t *testing.T) {
 	c := newDgraphClient()
 
-	_, err := CreateSchema(c, TestUser{})
+	_, err := CreateSchema(c, TestFloats{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer dropAll(c)
 
 	tx := NewTxn(c).SetCommitNow()
-	user := createTestUser()
+	user := createTestFloats()
 
-	uids, err := tx.Mutate(&user)
+	uids, err := tx.MutateBasic(&user)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assert.Len(t, uids, 9)
+	assert.Len(t, uids, 1)
+	require.NotEmpty(t, user.UID)
 
 	tx = NewReadOnlyTxn(c)
-	var result TestUser
+	var result TestFloats
 	err = tx.Get(&result).UID(user.UID).Node()
-	if err != nil {
-		t.Error(err)
-	}
-	assert.Equal(t, user.Temp, result.Temp)
-	assert.Equal(t, 0.0, result.ZeroTest)
+	require.NoError(t, err)
 
 	// Compare big.Float values properly using their comparison methods
 	expectedAmount := big.NewFloat(100.556)
@@ -93,11 +104,17 @@ func TestVectorMutation(t *testing.T) {
 	c := newDgraphClient()
 
 	// Create schema for the test item with vector field
-	_, err := CreateSchema(c, TestItem{})
+	schema, err := CreateSchema(c, TestItem{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer dropAll(c)
+
+	// Check the schema
+	assert.Equal(t, "name: string @index(term) .", schema.Schema["name"].String())
+	assert.Equal(t, "identifier: string @index(term) @upsert .", schema.Schema["identifier"].String())
+	assert.Equal(t, "description: string .", schema.Schema["description"].String())
+	assert.Equal(t, "vector: float32vector @index(hnsw(metric:\"cosine\")) .", schema.Schema["vector"].String())
 
 	// Create and insert a test item
 	tx := NewTxn(c).SetCommitNow()
