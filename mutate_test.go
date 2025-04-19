@@ -17,7 +17,6 @@
 package dgman
 
 import (
-	"math/big"
 	"sort"
 	"testing"
 	"time"
@@ -39,9 +38,6 @@ type TestUser struct {
 	Name            string        `json:"name,omitempty"`
 	Username        string        `json:"username,omitempty" dgraph:"index=term unique"`
 	Email           string        `json:"email,omitempty" dgraph:"index=term unique"`
-	Temp            float64       `json:"temperature,omitempty"`
-	ZeroTest        float64       `json:"zeroTest,omitzero"`
-	Amount          *big.Float    `json:"amount,omitempty" dgraph:"index=bigfloat"`
 	Schools         []TestSchool  `json:"schools,omitempty" dgraph:"count"`
 	SchoolsPtr      []*TestSchool `json:"schoolsPtr,omitempty" dgraph:"count"`
 	School          *TestSchool   `json:"school,omitempty"`
@@ -85,8 +81,6 @@ func createTestUser() TestUser {
 		Name:     "wildan",
 		Username: "wildan2711",
 		Email:    "wildan2711@gmail.com",
-		Temp:     37.5,
-		Amount:   big.NewFloat(100.556),
 		School: &TestSchool{
 			Name:       "BSS",
 			Identifier: "bss",
