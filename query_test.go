@@ -428,7 +428,6 @@ func TestOrder(t *testing.T) {
 		Vars("getWithNames($name: string)", map[string]string{"$name": "wildan"}).
 		Filter("allofterms(name, $name)").
 		OrderAsc("age")
-	log.Println(query)
 	if err = query.Nodes(); err != nil {
 		t.Error(err)
 	}
@@ -437,11 +436,8 @@ func TestOrder(t *testing.T) {
 
 	result1 := &TestModel{}
 	NewReadOnlyTxn(c).Get(&result1).UID(models[0].UID).Node()
-	log.Printf("%+v", result1)
 
 	for i, r := range result {
-		log.Printf("%+v", models[i])
-		log.Printf("%+v", r)
 		assert.Equal(t, models[i], r)
 	}
 
