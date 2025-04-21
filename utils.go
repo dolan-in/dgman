@@ -18,6 +18,7 @@ package dgman
 
 import (
 	"context"
+	"os"
 	"strconv"
 
 	"github.com/dgraph-io/dgo/v240"
@@ -25,7 +26,12 @@ import (
 )
 
 func newDgraphClient() *dgo.Dgraph {
-	client, err := dgo.Open("dgraph://localhost:9080")
+	addr := os.Getenv("DGMAN_TEST_DATABASE")
+	if addr == "" {
+		addr = "localhost:9080"
+	}
+	addr = "dgraph://" + addr
+	client, err := dgo.Open(addr)
 	if err != nil {
 		panic(err)
 	}
