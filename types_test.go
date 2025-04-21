@@ -32,13 +32,6 @@ type TestFloats struct {
 	DType  []string   `json:"dgraph.type,omitempty"`
 }
 
-func createTestFloats() TestFloats {
-	return TestFloats{
-		Name:   "wildan",
-		Amount: big.NewFloat(100.556),
-	}
-}
-
 func TestMutationFloats(t *testing.T) {
 	c := newDgraphClient()
 
@@ -49,7 +42,10 @@ func TestMutationFloats(t *testing.T) {
 	defer dropAll(c)
 
 	tx := NewTxn(c).SetCommitNow()
-	user := createTestFloats()
+	user := TestFloats{
+		Name:   "wildan",
+		Amount: big.NewFloat(100.556),
+	}
 
 	uids, err := tx.MutateBasic(&user)
 	if err != nil {
@@ -88,18 +84,6 @@ type TestItem struct {
 	DType       []string       `json:"dgraph.type,omitempty" dgraph:"Item"`
 }
 
-func createTestItem() TestItem {
-	return TestItem{
-		Name:        "Test Item",
-		Identifier:  "test-item-1",
-		Description: "This is a test item for vector embeddings",
-		Vector: &VectorFloat32{
-			Values: []float32{0.1, 0.2, 0.3, 0.4, 0.5},
-			Metric: "cosine",
-		},
-	}
-}
-
 func TestVectorMutation(t *testing.T) {
 	c := newDgraphClient()
 
@@ -118,7 +102,12 @@ func TestVectorMutation(t *testing.T) {
 
 	// Create and insert a test item
 	tx := NewTxn(c).SetCommitNow()
-	item := createTestItem()
+	item := TestItem{
+		Name:        "Test Item",
+		Identifier:  "test-item-1",
+		Description: "This is a test item for vector embeddings",
+		Vector:      &VectorFloat32{Values: []float32{0.1, 0.2, 0.3, 0.4, 0.5}},
+	}
 
 	uids, err := tx.MutateBasic(&item)
 	require.NoError(t, err)
