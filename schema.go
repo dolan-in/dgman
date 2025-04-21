@@ -103,9 +103,9 @@ func (s Schema) String() string {
 	if s.Noconflict {
 		schema += "@noconflict "
 	}
-	if s.Metric != "" {
-		schema += fmt.Sprintf("@metric(%s) ", s.Metric)
-	}
+	//if s.Metric != "" {
+	//	schema += fmt.Sprintf("@metric(%s) ", s.Metric)
+	//}
 	return schema + "."
 }
 
@@ -404,9 +404,6 @@ func fetchExistingSchema(c *dgo.Dgraph) ([]*Schema, error) {
 		return nil, err
 	}
 
-	if false {
-		fmt.Println(schemas.Schema)
-	}
 	return schemas.Schema, nil
 }
 
@@ -505,10 +502,6 @@ func CreateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
 	err := cleanExistingSchema(c, typeSchema.Schema)
 	if err != nil {
 		return nil, err
-	}
-
-	if false {
-		fmt.Println(typeSchema.String())
 	}
 
 	alterString := typeSchema.String()
