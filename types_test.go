@@ -114,23 +114,15 @@ func TestVectorMutation(t *testing.T) {
 	assert.NotEmpty(t, uids)
 	assert.NotEmpty(t, item.UID)
 
-	schema, err = CreateSchema(c, TestItem{})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Query it back
 	tx = NewReadOnlyTxn(c)
 	var result TestItem
 	err = tx.Get(&result).UID(item.UID).Node()
 	require.NoError(t, err)
 
-	// Verify all fields match, especially the vector
 	assert.Equal(t, item.Name, result.Name)
 	assert.Equal(t, item.Identifier, result.Identifier)
 	assert.Equal(t, item.Description, result.Description)
 
-	// Vector values should match
 	assert.Len(t, result.Vector.Values, len(item.Vector.Values))
 	for i, val := range item.Vector.Values {
 		assert.InDelta(t, val, result.Vector.Values[i], 0.0001)
@@ -164,15 +156,18 @@ func TestVectorMutationEuclidean(t *testing.T) {
 		UID        string        `json:"uid,omitempty"`
 		Name       string        `json:"name,omitempty" dgraph:"index=term"`
 		Identifier string        `json:"identifier,omitempty" dgraph:"index=term unique"`
-		Vector     VectorFloat32 `json:"vector" dgraph:"index=hnsw(metric:\"euclidean\")"`
+		Vector     VectorFloat32 `json:"vector" dgraph:"index=hnsw(metric:\"euclidean\", exponent:\"6\")"`
 		DType      []string      `json:"dgraph.type,omitempty" dgraph:"EuclideanItem"`
 	}
 
 	// Create schema for the euclidean item
-	_, err := CreateSchema(c, EuclideanItem{})
+	schema, err := CreateSchema(c, EuclideanItem{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	assert.Equal(t, "name: string @index(term) .", schema.Schema["name"].String())
+	assert.Equal(t, "identifier: string @index(term) @upsert .", schema.Schema["identifier"].String())
+	assert.Equal(t, "vector: float32vector @index(hnsw(metric:\"euclidean\", exponent:\"6\")) .", schema.Schema["vector"].String())
 	defer dropAll(c)
 
 	// Create and insert a test item with euclidean metric
