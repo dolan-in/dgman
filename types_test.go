@@ -80,7 +80,7 @@ type TestItem struct {
 	Name        string         `json:"name,omitempty" dgraph:"index=term"`
 	Identifier  string         `json:"identifier,omitempty" dgraph:"index=term unique"`
 	Description string         `json:"description,omitempty"`
-	Vector      *VectorFloat32 `json:"vector,omitempty" dgraph:"index=hnsw(metric=\"cosine\")"`
+	Vector      *VectorFloat32 `json:"vector,omitempty" dgraph:"index=hnsw(metric:\"cosine\")"`
 	DType       []string       `json:"dgraph.type,omitempty" dgraph:"Item"`
 }
 
@@ -113,6 +113,11 @@ func TestVectorMutation(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, uids)
 	assert.NotEmpty(t, item.UID)
+
+	schema, err = CreateSchema(c, TestItem{})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Query it back
 	tx = NewReadOnlyTxn(c)
@@ -159,7 +164,7 @@ func TestVectorMutationEuclidean(t *testing.T) {
 		UID        string        `json:"uid,omitempty"`
 		Name       string        `json:"name,omitempty" dgraph:"index=term"`
 		Identifier string        `json:"identifier,omitempty" dgraph:"index=term unique"`
-		Vector     VectorFloat32 `json:"vector" dgraph:"index=hnsw(metric=\"euclidean\")"`
+		Vector     VectorFloat32 `json:"vector" dgraph:"index=hnsw(metric:\"euclidean\")"`
 		DType      []string      `json:"dgraph.type,omitempty" dgraph:"EuclideanItem"`
 	}
 

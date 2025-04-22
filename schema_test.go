@@ -17,9 +17,12 @@
 package dgman
 
 import (
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -155,6 +158,14 @@ func TestCreateSchema(t *testing.T) {
 	assert.Len(t, firstSchema.Schema, 24)
 	assert.Len(t, firstSchema.Types, 2)
 
+	// Create a test logger to capture logs, which will
+	// warn about conflicts of username and email
+	logSink := newTestLogSink()
+	testLogger := logr.New(logSink)
+	originalLogger := Logger()
+	SetLogger(testLogger)
+	defer SetLogger(originalLogger)
+
 	secondSchema, err := CreateSchema(c, &NewUser{})
 	if err != nil {
 		t.Error(err)
@@ -169,6 +180,18 @@ func TestCreateSchema(t *testing.T) {
 	}
 	assert.Len(t, firstSchema.Schema, 0)
 	assert.Len(t, firstSchema.Types, 2)
+
+	// Verify we captured schema conflict logs
+	logs := logSink.GetLogs()
+	assert.Greater(t, len(logs), 0, "Should have captured log messages")
+	conflictFound := false
+	for _, msg := range logs {
+		if strings.Contains(msg, "schema conflict") {
+			conflictFound = true
+			break
+		}
+	}
+	assert.True(t, conflictFound, "Should have logged schema conflicts")
 }
 
 func TestMutateSchema(t *testing.T) {
@@ -263,3 +286,93 @@ func TestMissingDType(t *testing.T) {
 	_, err := CreateSchema(c, &SchemaTest{})
 	require.Error(t, err, "expected error due to missing required field DType []string `json:\"dgraph.type\"` in type SchemaTest")
 }
+
+func TestParseStructTag_Comprehensive(t *testing.T) {
+	tests := []struct {
+		tag     string
+		expects rawSchema
+		comment string
+	}{
+		{
+			tag:     "index=term unique upsert reverse count list lang noconflict predicate=my_predicate type=int",
+			expects: rawSchema{Index: "term", Unique: true, Upsert: true, Reverse: true, Count: true, List: true, Lang: true, Noconflict: true, Predicate: "my_predicate", Type: "int"},
+			comment: "All boolean and value tokens",
+		},
+		{
+			tag:     "index=hash",
+			expects: rawSchema{Index: "hash"},
+			comment: "Simple index",
+		},
+		{
+			tag:     "index=hnsw(metric:\"cosine\")",
+			expects: rawSchema{Index: "hnsw(metric:\"cosine\")"},
+			comment: "HNSW with metric",
+		},
+		{
+			tag:     "index=hnsw(metric:\"euclidean\",exponent:\"6\")",
+			expects: rawSchema{Index: "hnsw(metric:\"euclidean\",exponent:\"6\")"},
+			comment: "HNSW with metric and exponent",
+		},
+		{
+			tag:     "reverse",
+			expects: rawSchema{Reverse: true},
+			comment: "Single boolean flag",
+		},
+		{
+			tag:     "predicate=foo type=uid",
+			expects: rawSchema{Predicate: "foo", Type: "uid"},
+			comment: "Predicate and type override",
+		},
+	}
+
+	for _, tt := range tests {
+		schema, err := parseStructTag(tt.tag)
+		assert.NoError(t, err, tt.comment)
+		assert.Equal(t, tt.expects.Index, schema.Index, tt.comment+": index")
+		assert.Equal(t, tt.expects.Unique, schema.Unique, tt.comment+": unique")
+		assert.Equal(t, tt.expects.Upsert, schema.Upsert, tt.comment+": upsert")
+		assert.Equal(t, tt.expects.Reverse, schema.Reverse, tt.comment+": reverse")
+		assert.Equal(t, tt.expects.Count, schema.Count, tt.comment+": count")
+		assert.Equal(t, tt.expects.List, schema.List, tt.comment+": list")
+		assert.Equal(t, tt.expects.Lang, schema.Lang, tt.comment+": lang")
+		assert.Equal(t, tt.expects.Noconflict, schema.Noconflict, tt.comment+": noconflict")
+		assert.Equal(t, tt.expects.Predicate, schema.Predicate, tt.comment+": predicate")
+		assert.Equal(t, tt.expects.Type, schema.Type, tt.comment+": type")
+	}
+}
+
+// testLogSink implements logr.LogSink for testing
+type testLogSink struct {
+	logs  []string
+	mutex sync.Mutex
+}
+
+func newTestLogSink() *testLogSink {
+	return &testLogSink{logs: make([]string, 0)}
+}
+
+// Capture logs any message passed to it
+func (l *testLogSink) capture(msg string) {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	l.logs = append(l.logs, msg)
+}
+
+// GetLogs returns all captured logs
+func (l *testLogSink) GetLogs() []string {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	return l.logs
+}
+
+// Implementation of logr.LogSink interface
+func (l *testLogSink) Init(logr.RuntimeInfo)  {}
+func (l *testLogSink) Enabled(level int) bool { return true }
+func (l *testLogSink) Info(level int, msg string, kvs ...interface{}) {
+	l.capture(msg)
+}
+func (l *testLogSink) Error(err error, msg string, kvs ...interface{}) {
+	l.capture(msg)
+}
+func (l *testLogSink) WithValues(kvs ...interface{}) logr.LogSink { return l }
+func (l *testLogSink) WithName(name string) logr.LogSink          { return l }

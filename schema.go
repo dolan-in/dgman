@@ -19,7 +19,6 @@ package dgman
 import (
 	"context"
 	"fmt"
-	"log"
 	"math/big"
 	"reflect"
 	"regexp"
@@ -28,16 +27,12 @@ import (
 
 	"github.com/dgraph-io/dgo/v240"
 	"github.com/dgraph-io/dgo/v240/protos/api"
-	"github.com/kr/logfmt"
 )
 
 const (
 	tagName             = "dgraph"
 	predicateDgraphType = "dgraph.type"
 	predicateUid        = "uid"
-
-	schemaUid     = "uid"
-	schemaUidList = "[uid]"
 )
 
 type rawSchema struct {
@@ -77,16 +72,14 @@ func (s Schema) String() string {
 	}
 	schema := fmt.Sprintf("%s: %s ", s.Predicate, t)
 	if s.Index {
-		if s.Type == "float32vector" {
-			// Special case for vector fields with hnsw index
-			metric := s.Metric
-			if metric == "" {
-				metric = "cosine" // Default to cosine if no metric specified
-			}
-			schema += fmt.Sprintf("@index(hnsw(metric:\"%s\")) ", metric)
-		} else {
-			schema += fmt.Sprintf("@index(%s) ", strings.Join(s.Tokenizer, ","))
-		}
+		schema += fmt.Sprintf("@index(%s) ", strings.Join(s.Tokenizer, ","))
+	} else if len(s.Tokenizer) > 0 {
+		// Dgraph does not report an index on float32vector when hnsw is used
+		tokenizer := s.Tokenizer[0]
+		// Remove quotes from pseudo metric and exponent parameters
+		tokenizer = strings.ReplaceAll(tokenizer, "\"metric\":", "metric:")
+		tokenizer = strings.ReplaceAll(tokenizer, "\"exponent\":", "exponent:")
+		schema += fmt.Sprintf("@index(%s) ", tokenizer)
 	}
 	if s.Upsert || s.Unique {
 		schema += "@upsert "
@@ -103,9 +96,6 @@ func (s Schema) String() string {
 	if s.Noconflict {
 		schema += "@noconflict "
 	}
-	//if s.Metric != "" {
-	//	schema += fmt.Sprintf("@metric(%s) ", s.Metric)
-	//}
 	return schema + "."
 }
 
@@ -154,7 +144,7 @@ func (t *TypeSchema) Marshal(parentType string, models ...interface{}) {
 	for _, model := range models {
 		current, err := reflectType(model)
 		if err != nil {
-			log.Println(err)
+			Logger().WithName("dgman").Error(err, "reflectType error")
 			continue
 		}
 
@@ -191,7 +181,7 @@ func (t *TypeSchema) Marshal(parentType string, models ...interface{}) {
 
 			s, err := parseDgraphTag(&field)
 			if err != nil {
-				log.Println("unmarshal dgraph tag: ", err)
+				Logger().WithName("dgman").Error(err, "unmarshal dgraph tag")
 				continue
 			}
 
@@ -217,7 +207,7 @@ func (t *TypeSchema) Marshal(parentType string, models ...interface{}) {
 			// each type should uniquely specify a predicate, that's why use a map on predicate
 			t.Types[nodeType][s.Predicate] = s
 			if exists && schema.String() != s.String() {
-				log.Printf("conflicting schema %s, already defined as \"%s\", trying to define \"%s\"\n", s.Predicate, schema.String(), s.String())
+				Logger().WithName("dgman").Info("schema conflict during marshalling", "predicate", s.Predicate, "existing", schema.String(), "new", s.String())
 			} else {
 				t.Schema[s.Predicate] = s
 			}
@@ -316,32 +306,7 @@ func parseDgraphTag(field *reflect.StructField) (*Schema, error) {
 		}
 
 		if schema.Index {
-			// Special handling for hnsw(index) with metric, e.g. hnsw(metric="cosine")
-			if strings.HasPrefix(dgraphProps.Index, "hnsw(") && strings.HasSuffix(dgraphProps.Index, ")") {
-				params := dgraphProps.Index[len("hnsw(") : len(dgraphProps.Index)-1]
-				metric := "cosine" // default
-
-				// Use regex to extract metric value - handles various formats:
-				// metric="cosine", metric='cosine', metric=cosine
-				re := regexp.MustCompile(`metric\s*=\s*["']?([^"')]+)["']?`)
-				matches := re.FindStringSubmatch(params)
-				if len(matches) > 1 {
-					metric = matches[1]
-					// Clean up any potential escape characters
-					metric = strings.ReplaceAll(metric, "\\", "")
-				}
-
-				switch metric {
-				case "cosine", "euclidean", "dotproduct":
-				default:
-					return nil, fmt.Errorf("invalid metric: %s", metric)
-				}
-
-				schema.Tokenizer = []string{"hnsw"}
-				schema.Metric = metric
-			} else {
-				schema.Tokenizer = strings.Split(dgraphProps.Index, ",")
-			}
+			schema.Tokenizer = strings.Split(dgraphProps.Index, ",")
 		}
 	}
 	return schema, nil
@@ -367,11 +332,60 @@ func reflectType(model interface{}) (reflect.Type, error) {
 }
 
 func parseStructTag(tag string) (*rawSchema, error) {
-	var schema rawSchema
-	if err := logfmt.Unmarshal([]byte(tag), &schema); err != nil {
-		return nil, err
+	schema := &rawSchema{}
+
+	// Special case for HNSW index - extract it first to prevent splitting issues
+	hnswRegex := regexp.MustCompile(`index=hnsw\([^)]+\)`)
+	hnswMatch := hnswRegex.FindString(tag)
+	if hnswMatch != "" {
+		// Extract just the index value (everything after "index=")
+		schema.Index = strings.TrimPrefix(hnswMatch, "index=")
+		// Remove the HNSW part from the tag to avoid double processing
+		tag = strings.Replace(tag, hnswMatch, "", 1)
 	}
-	return &schema, nil
+
+	// Split by space, but keep quoted substrings together
+	fields := regexp.MustCompile(`([\w]+=[^\s"']+|[\w]+\s*=\s*"[^"]*"|[\w]+\s*=\s*'[^']*'|[\w]+|[\w]+=[^\s]+)`).FindAllString(tag, -1)
+
+	for _, field := range fields {
+		if field == "" {
+			continue
+		}
+		kv := strings.SplitN(field, "=", 2)
+		key := strings.TrimSpace(kv[0])
+		var value string
+		if len(kv) == 2 {
+			value = strings.Trim(strings.TrimSpace(kv[1]), `"'`)
+		}
+
+		switch key {
+		case "index":
+			// Only set the index if we didn't already find an HNSW index
+			if schema.Index == "" {
+				schema.Index = value
+			}
+		case "reverse":
+			schema.Reverse = true
+		case "count":
+			schema.Count = true
+		case "list":
+			schema.List = true
+		case "upsert":
+			schema.Upsert = true
+		case "lang":
+			schema.Lang = true
+		case "noconflict":
+			schema.Noconflict = true
+		case "unique":
+			schema.Unique = true
+		case "predicate":
+			schema.Predicate = value
+		case "type":
+			schema.Type = value
+		}
+	}
+
+	return schema, nil
 }
 
 func fetchExistingSchema(c *dgo.Dgraph) ([]*Schema, error) {
@@ -456,14 +470,8 @@ func cleanExistingSchema(c *dgo.Dgraph, schemaMap SchemaMap) error {
 
 	for _, schema := range existingSchema {
 		if s, exists := schemaMap[schema.Predicate]; exists {
-			// Special handling for float32vector fields - allow adding HNSW index
-			if s.Type == "float32vector" && schema.Type == "float32vector" && s.Index && !schema.Index {
-				// This is a vector field we're trying to add an index to - allow it
-				continue
-			}
-
 			if s.String() != schema.String() {
-				log.Printf("existing schema %s, already defined as \"%s\", trying to install \"%s\"\n", schema.Predicate, schema.String(), s.String())
+				Logger().WithName("dgman").Info("schema conflict", "predicate", schema.Predicate, "existing", schema.String(), "new", s.String())
 			}
 
 			delete(schemaMap, schema.Predicate)
