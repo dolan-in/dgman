@@ -353,6 +353,26 @@ func TestParseStructTag_Comprehensive(t *testing.T) {
 			expects: rawSchema{Predicate: "foo", Type: "uid"},
 			comment: "Predicate and type override",
 		},
+		{
+			tag:     "unique",
+			expects: rawSchema{Unique: true},
+			comment: "Unique flag only - should add hash tokenizer later",
+		},
+		{
+			tag:     "unique index=term",
+			expects: rawSchema{Unique: true, Index: "term"},
+			comment: "Unique with non-hash/exact tokenizer - should add hash tokenizer later",
+		},
+		{
+			tag:     "unique index=hash",
+			expects: rawSchema{Unique: true, Index: "hash"},
+			comment: "Unique with hash tokenizer - shouldn't add duplicate hash",
+		},
+		{
+			tag:     "unique index=exact",
+			expects: rawSchema{Unique: true, Index: "exact"},
+			comment: "Unique with exact tokenizer - doesn't need hash added",
+		},
 	}
 
 	for _, tt := range tests {
