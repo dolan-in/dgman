@@ -33,7 +33,7 @@ func newDgraphClient() *dgo.Dgraph {
 	addr = "dgraph://" + addr
 	client, err := dgo.Open(addr)
 	if err != nil {
-		panic(err)
+		panic("Error opening Dgraph client: " + err.Error())
 	}
 
 	return client
