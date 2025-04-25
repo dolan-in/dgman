@@ -99,8 +99,8 @@ func TestMarshalSchema(t *testing.T) {
 	typeSchema := NewTypeSchema()
 	typeSchema.Marshal("", &User{})
 	types, schema := typeSchema.Types, typeSchema.Schema
-	assert.Equal(t, "username: string @index(hash) @upsert .", schema["username"].String())
-	assert.Equal(t, "email: string @index(hash) @upsert .", schema["email"].String())
+	assert.Equal(t, "username: string @index(hash) @upsert @unique .", schema["username"].String())
+	assert.Equal(t, "email: string @index(hash) @upsert @unique .", schema["email"].String())
 	assert.Equal(t, "noconflict: string @index(hash) @noconflict .", schema["noconflict"].String())
 	assert.Equal(t, "password: string .", schema["password"].String())
 	assert.Equal(t, "name: string @index(term) .", schema["name"].String())

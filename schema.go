@@ -71,6 +71,17 @@ func (s Schema) String() string {
 		t = fmt.Sprintf("[%s]", t)
 	}
 	schema := fmt.Sprintf("%s: %s ", s.Predicate, t)
+	if s.Unique {
+		required := false
+		for _, tokenizer := range s.Tokenizer {
+			if tokenizer == "hash" || tokenizer == "exact" {
+				required = true
+			}
+		}
+		if !required {
+			s.Tokenizer = append(s.Tokenizer, "hash")
+		}
+	}
 	if s.Index {
 		schema += fmt.Sprintf("@index(%s) ", strings.Join(s.Tokenizer, ","))
 	} else if len(s.Tokenizer) > 0 {
@@ -83,6 +94,10 @@ func (s Schema) String() string {
 	}
 	if s.Upsert || s.Unique {
 		schema += "@upsert "
+		switch t {
+		case "int", "string":
+			schema += "@unique "
+		}
 	}
 	if s.Count {
 		schema += "@count "
