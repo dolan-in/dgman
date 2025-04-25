@@ -72,13 +72,21 @@ func (s Schema) String() string {
 	}
 	schema := fmt.Sprintf("%s: %s ", s.Predicate, t)
 	if s.Unique {
-		required := false
+		// Check if hash or exact already exists in tokenizers
+		hasHashOrExact := false
+		hasHash := false
+
 		for _, tokenizer := range s.Tokenizer {
-			if tokenizer == "hash" || tokenizer == "exact" {
-				required = true
+			if tokenizer == "hash" {
+				hasHash = true
+				hasHashOrExact = true
+			} else if tokenizer == "exact" {
+				hasHashOrExact = true
 			}
 		}
-		if !required {
+
+		// Only add hash if neither hash nor exact exists and hash isn't already present
+		if !hasHashOrExact && !hasHash {
 			s.Tokenizer = append(s.Tokenizer, "hash")
 		}
 	}
