@@ -15,8 +15,6 @@
 - Delete helpers (Delete n-quads generator, Delete Query, Delete Node, Delete Edge).
 
 ## Roadmap
-- Support for Dgraph's `@unique` directive [#8827](https://github.com/hypermodeinc/dgraph/pull/8827). This would
-replace the current unique checking logic.
 - Support for Dgraph v25's new namespace mechanism and other dgo v25 features.
 
 ## Table of Contents
@@ -74,7 +72,7 @@ If you need to define a custom name for the node type, you can define it on the 
 type CustomNodeType struct {
 	UID 	string 		`json:"uid,omitempty"`
 	Name 	string 		`json:"name,omitempty"`
-	DType	[]string 	`json:"dgraph.type" dgraph:"CustomNodeType"`
+	DType	[]string 	`json:"dgraph.type" dgraph:"MyNodeType"`
 }
 ```
 
@@ -748,6 +746,6 @@ Make sure you have a running `dgraph` cluster, and set the `DGMAN_TEST_DATABASE`
 
 Run the tests:
 
-```
-go test -v .
+```sh
+go test -v . -p 1 -parallel 1
 ```
