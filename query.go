@@ -161,6 +161,8 @@ func (q *QueryBlock) String() string {
 func (q *QueryBlock) executeQuery() (result []byte, err error) {
 	queryString := q.String()
 
+	Logger().WithName("dgman").V(3).Info("executeQuery", "queryString", queryString)
+
 	var resp *api.Response
 	if q.vars != nil {
 		resp, err = q.tx.QueryWithVars(q.ctx, queryString, q.vars)
@@ -606,6 +608,7 @@ func (q *Query) String() string {
 func (q *Query) executeQuery() (result []byte, err error) {
 	queryString := q.String()
 
+	Logger().WithName("dgman").V(3).Info("execute query", "query", queryString)
 	var resp *api.Response
 	if q.vars != nil {
 		resp, err = q.tx.QueryWithVars(q.ctx, queryString, q.vars)
