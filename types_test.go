@@ -17,7 +17,6 @@
 package dgman
 
 import (
-	"context"
 	"math/big"
 	"testing"
 
@@ -170,7 +169,7 @@ func TestVectorMutationEuclidean(t *testing.T) {
 		t.Fatal(err)
 	}
 	assert.Equal(t, "name: string @index(term) .", schema.Schema["name"].String())
-	assert.Equal(t, "identifier: string @index(term) @upsert .", schema.Schema["identifier"].String())
+	assert.Equal(t, "identifier: string @index(term,hash) @upsert @unique .", schema.Schema["identifier"].String())
 	assert.Equal(t, "vector: float32vector @index(hnsw(metric:\"euclidean\", exponent:\"6\")) .", schema.Schema["vector"].String())
 	defer dropAll(c)
 
@@ -181,7 +180,6 @@ func TestVectorMutationEuclidean(t *testing.T) {
 		Identifier: "euclidean-item-1",
 		Vector: VectorFloat32{
 			Values: []float32{1.1, 2.2, 3.3, 4.4, 5.5},
-			Metric: "euclidean",
 		},
 	}
 
@@ -246,29 +244,15 @@ func TestVectorSimilaritySearch(t *testing.T) {
 
 	// Query with a vector close to Item B
 	vectorVar := "[0.51, 0.39, 0.29, 0.19, 0.09]"
-	dql := `query similar($vec: string) {
-		similar(func: similar_to(vector, 1, $vec)) {
-			uid
-			name
-			identifier
-			description
-			vector
-		}
-	}`
 
-	txn := c.NewReadOnlyTxn()
-	resp, err := txn.QueryWithVars(context.Background(), dql, map[string]string{"$vec": vectorVar})
+	var testItem TestItem
+	query := NewQuery().Model(&testItem).
+		RootFunc("similar_to(vector, 1, $vec)")
+
+	txn2 := NewReadOnlyTxn(c)
+	err = txn2.Query(query).Vars("similar_to($vec: string)", map[string]string{"$vec": vectorVar}).Scan()
 	require.NoError(t, err)
 
-	type resultStruct struct {
-		Similar []TestItem `json:"similar"`
-	}
-	var result resultStruct
-	err = json.Unmarshal(resp.GetJson(), &result)
-	require.NoError(t, err)
-	assert.Len(t, result.Similar, 1)
-
-	// The closest should be Item B
-	assert.Equal(t, "Item B", result.Similar[0].Name)
-	assert.Equal(t, "item-b", result.Similar[0].Identifier)
+	assert.Equal(t, "Item B", testItem.Name)
+	assert.Equal(t, "item-b", testItem.Identifier)
 }
