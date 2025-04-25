@@ -388,6 +388,44 @@ func parseStructTag(tag string) (*rawSchema, error) {
 	return schema, nil
 }
 
+func GetSchema(c *dgo.Dgraph) (string, error) {
+	schemaQuery := `schema {}`
+
+	tx := c.NewReadOnlyTxn()
+
+	resp, err := tx.Query(context.Background(), schemaQuery)
+	if err != nil {
+		return "", err
+	}
+	type schemaResponse struct {
+		Schema []*Schema `json:"schema"`
+		Types  []struct {
+			Fields []struct {
+				Name string `json:"name"`
+			} `json:"fields"`
+			Name string `json:"name"`
+		} `json:"types"`
+	}
+	var schemas schemaResponse
+	if err = json.Unmarshal(resp.Json, &schemas); err != nil {
+		return "", err
+	}
+
+	var sb strings.Builder
+	for _, s := range schemas.Schema {
+		sb.WriteString(s.String())
+		sb.WriteString("\n")
+	}
+	for _, t := range schemas.Types {
+		sb.WriteString("type " + t.Name + " {\n")
+		for _, field := range t.Fields {
+			sb.WriteString("\t" + field.Name + "\n")
+		}
+		sb.WriteString("}\n")
+	}
+	return sb.String(), nil
+}
+
 func fetchExistingSchema(c *dgo.Dgraph) ([]*Schema, error) {
 	schemaQuery := `
 		schema {

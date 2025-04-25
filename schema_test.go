@@ -280,6 +280,30 @@ func Test_fetchExistingTypes(t *testing.T) {
 	assert.Len(t, types, 2)
 }
 
+func Test_GetSchema(t *testing.T) {
+	c := newDgraphClient()
+	dropAll(c)
+	defer dropAll(c)
+
+	type SmallStruct struct {
+		UID   string   `json:"uid,omitempty"`
+		Name  string   `json:"name,omitempty" dgraph:"index=term"`
+		DType []string `json:"dgraph.type"`
+	}
+	_, err := CreateSchema(c, &SmallStruct{})
+	if err != nil {
+		t.Error(err)
+	}
+
+	schema, err := GetSchema(c)
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Contains(t, schema, "name: string @index(term) .")
+	assert.Contains(t, schema, "type SmallStruct {\n\tname\n}")
+}
+
 func TestMissingDType(t *testing.T) {
 	c := newDgraphClient()
 	dropAll(c)
