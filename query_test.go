@@ -706,5 +706,11 @@ func TestRootFunc(t *testing.T) {
 	query := NewQuery().Model(&TestItem{}).
 		RootFunc("similar_to(vector, 1, $vec)").
 		Vars("similar_to($vec)", map[string]string{"$vec": "[0.51, 0.39, 0.29, 0.19, 0.09]"})
-	fmt.Println(query.String())
+	assert.Equal(t, `query similar_to($vec){
+	data(func: similar_to(vector, 1, $vec)) @filter(has(dgraph.type)) {
+		uid
+		dgraph.type
+		expand(_all_)
+	}
+}`, query.String())
 }
