@@ -558,7 +558,12 @@ func CreateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
 		for i := 0; i < modelType.NumField(); i++ {
 			field := modelType.Field(i)
 			jsonTag := field.Tag.Get("json")
-			if strings.HasPrefix(jsonTag, "dgraph.type") {
+
+			// Properly parse the JSON tag to extract just the field name
+			tagParts := strings.Split(jsonTag, ",")
+			fieldName := strings.TrimSpace(tagParts[0])
+
+			if fieldName == "dgraph.type" {
 				foundDType = true
 				break
 			}
