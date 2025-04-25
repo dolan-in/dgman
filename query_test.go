@@ -49,6 +49,7 @@ func TestGetByUID(t *testing.T) {
 	}
 
 	c := newDgraphClient()
+	dropAll(c)
 	defer dropAll(c)
 
 	_, err := CreateSchema(c, &TestModel{})
@@ -83,6 +84,7 @@ func TestGetByFilter(t *testing.T) {
 	}
 
 	c := newDgraphClient()
+	dropAll(c)
 	if _, err := CreateSchema(c, source); err != nil {
 		t.Error(err)
 	}
@@ -146,6 +148,7 @@ func TestCascade(t *testing.T) {
 	}
 
 	c := newDgraphClient()
+	dropAll(c)
 	if _, err := CreateSchema(c, &TestModel{}); err != nil {
 		t.Error(err)
 	}
@@ -223,6 +226,7 @@ func TestFind(t *testing.T) {
 	}
 
 	c := newDgraphClient()
+	dropAll(c)
 	if _, err := CreateSchema(c, &TestModel{}); err != nil {
 		t.Error(err)
 	}
@@ -256,6 +260,7 @@ func TestGetByQuery(t *testing.T) {
 	}
 
 	c := newDgraphClient()
+	dropAll(c)
 	if _, err := CreateSchema(c, &TestModel{}); err != nil {
 		t.Error(err)
 	}
@@ -315,6 +320,7 @@ func TestGetAllWithDepth(t *testing.T) {
 	}
 
 	c := newDgraphClient()
+	dropAll(c)
 	if _, err := CreateSchema(c, &TestModel{}); err != nil {
 		t.Error(err)
 	}
@@ -353,6 +359,7 @@ func TestPagination(t *testing.T) {
 		})
 	}
 	c := newDgraphClient()
+	dropAll(c)
 	if _, err := CreateSchema(c, &TestModel{}); err != nil {
 		t.Error(err)
 	}
@@ -410,6 +417,7 @@ func TestOrder(t *testing.T) {
 		})
 	}
 	c := newDgraphClient()
+	dropAll(c)
 	if _, err := CreateSchema(c, &TestModel{}); err != nil {
 		t.Error(err)
 	}
@@ -428,7 +436,6 @@ func TestOrder(t *testing.T) {
 		Vars("getWithNames($name: string)", map[string]string{"$name": "wildan"}).
 		Filter("allofterms(name, $name)").
 		OrderAsc("age")
-	log.Println(query)
 	if err = query.Nodes(); err != nil {
 		t.Error(err)
 	}
@@ -437,11 +444,8 @@ func TestOrder(t *testing.T) {
 
 	result1 := &TestModel{}
 	NewReadOnlyTxn(c).Get(&result1).UID(models[0].UID).Node()
-	log.Printf("%+v", result1)
 
 	for i, r := range result {
-		log.Printf("%+v", models[i])
-		log.Printf("%+v", r)
 		assert.Equal(t, models[i], r)
 	}
 
@@ -471,6 +475,8 @@ func TestOrder(t *testing.T) {
 
 func TestQueryBlock(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
+
 	if _, err := CreateSchema(c, &TestModel{}); err != nil {
 		t.Error(err)
 	}
@@ -520,6 +526,8 @@ func TestQueryBlock(t *testing.T) {
 
 func TestGetNodesAndCount(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
+
 	if _, err := CreateSchema(c, &TestModel{}); err != nil {
 		t.Error(err)
 	}
@@ -692,4 +700,17 @@ func Test_parseQueryWithParams(t *testing.T) {
 			assert.Equal(t, tt.want, parseQueryWithParams(tt.args.query, tt.args.params))
 		})
 	}
+}
+
+func TestRootFunc(t *testing.T) {
+	query := NewQuery().Model(&TestItem{}).
+		RootFunc("similar_to(vector, 1, $vec)").
+		Vars("similar_to($vec)", map[string]string{"$vec": "[0.51, 0.39, 0.29, 0.19, 0.09]"})
+	assert.Equal(t, `query similar_to($vec){
+	data(func: similar_to(vector, 1, $vec)) @filter(has(dgraph.type)) {
+		uid
+		dgraph.type
+		expand(_all_)
+	}
+}`, query.String())
 }

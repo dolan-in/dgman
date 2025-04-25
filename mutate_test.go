@@ -124,6 +124,7 @@ func createTestUser() TestUser {
 
 func TestMutationMutateBasic(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 
 	_, err := CreateSchema(c, TestUser{})
 	if err != nil {
@@ -138,12 +139,12 @@ func TestMutationMutateBasic(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-
 	assert.Len(t, uids, 9)
 }
 
 func TestMutationMutate(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 
 	_, err := CreateSchema(c, TestUser{})
 	if err != nil {
@@ -184,6 +185,7 @@ func TestMutationMutate(t *testing.T) {
 
 func TestMutationMutate_UpdateUnique(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 
 	_, err := CreateSchema(c, TestUser{})
 	if err != nil {
@@ -227,6 +229,7 @@ func TestMutationMutate_UpdateUnique(t *testing.T) {
 
 func TestMutationMutate_SetEdge(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 
 	_, err := CreateSchema(c, TestUser{})
 	if err != nil {
@@ -303,6 +306,7 @@ func TestMutationMutate_SetEdge(t *testing.T) {
 
 func TestMutationMutate_Nested(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 
 	_, err := CreateSchema(c, TestUser{})
 	if err != nil {
@@ -332,6 +336,7 @@ func TestMutationMutate_Nested(t *testing.T) {
 
 func TestMutationUpdate(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 
 	_, err := CreateSchema(c, TestUser{})
 	if err != nil {
@@ -377,6 +382,7 @@ func TestMutationUpdate(t *testing.T) {
 
 func TestMutationMutateOrGet(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 
 	_, err := CreateSchema(c, TestUser{})
 	if err != nil {
@@ -424,6 +430,7 @@ func TestMutationMutateOrGet(t *testing.T) {
 
 func TestMutationMutateOrGetNested(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 
 	_, err := CreateSchema(c, TestUser{})
 	if err != nil {
@@ -477,6 +484,7 @@ func TestMutationMutateOrGetNested(t *testing.T) {
 
 func TestMutationMutateOrGetMultipleUnique(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 
 	_, err := CreateSchema(c, TestUser{})
 	if err != nil {
@@ -530,6 +538,7 @@ func TestMutationMutateOrGetMultipleUnique(t *testing.T) {
 
 func TestMutationMutateOrGetMultipleUniqueNested(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 
 	_, err := CreateSchema(c, TestUser{})
 	if err != nil {
@@ -575,6 +584,7 @@ func TestMutationMutateOrGetMultipleUniqueNested(t *testing.T) {
 
 func TestMutationUpsert(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 
 	_, err := CreateSchema(c, TestUser{})
 	if err != nil {
@@ -623,6 +633,7 @@ func TestMutationUpsert(t *testing.T) {
 
 func TestMutationUpsert_UniqueError(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 
 	_, err := CreateSchema(c, TestUser{})
 	if err != nil {

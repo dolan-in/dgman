@@ -3,8 +3,9 @@ module github.com/dolan-in/dgman/v2
 require (
 	github.com/dgraph-io/dgo/v240 v240.2.0
 	github.com/dolan-in/reflectwalk v1.0.2-0.20210101124621-dc2073a29d71
+	github.com/go-logr/logr v1.4.2
+	github.com/go-logr/stdr v1.2.2
 	github.com/json-iterator/go v1.1.12
-	github.com/kr/logfmt v0.0.0-20140226030751-b84e30acd515
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.10.0
 	google.golang.org/grpc v1.71.1

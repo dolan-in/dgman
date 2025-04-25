@@ -17,10 +17,14 @@
 package dgman
 
 import (
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type EnumType int
@@ -72,7 +76,7 @@ type Anonymous struct {
 
 type School struct {
 	UID      string   `json:"uid,omitempty"`
-	Name     string   `json:"name,omitempty"`
+	Name     string   `json:"name,omitempty" dgraph:"index=term"`
 	Location *GeoLoc  `json:"location,omitempty" dgraph:"type=geo"` // test passing type
 	DType    []string `json:"dgraph.type"`
 }
@@ -95,8 +99,8 @@ func TestMarshalSchema(t *testing.T) {
 	typeSchema := NewTypeSchema()
 	typeSchema.Marshal("", &User{})
 	types, schema := typeSchema.Types, typeSchema.Schema
-	assert.Equal(t, "username: string @index(hash) @upsert .", schema["username"].String())
-	assert.Equal(t, "email: string @index(hash) @upsert .", schema["email"].String())
+	assert.Equal(t, "username: string @index(hash) @upsert @unique .", schema["username"].String())
+	assert.Equal(t, "email: string @index(hash) @upsert @unique .", schema["email"].String())
 	assert.Equal(t, "noconflict: string @index(hash) @noconflict .", schema["noconflict"].String())
 	assert.Equal(t, "password: string .", schema["password"].String())
 	assert.Equal(t, "name: string @index(term) .", schema["name"].String())
@@ -145,6 +149,7 @@ func TestGetNodeType(t *testing.T) {
 
 func TestCreateSchema(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 	defer dropAll(c)
 
 	firstSchema, err := CreateSchema(c, &User{})
@@ -153,6 +158,14 @@ func TestCreateSchema(t *testing.T) {
 	}
 	assert.Len(t, firstSchema.Schema, 24)
 	assert.Len(t, firstSchema.Types, 2)
+
+	// Create a test logger to capture logs, which will
+	// warn about conflicts of username and email
+	logSink := newTestLogSink()
+	testLogger := logr.New(logSink)
+	originalLogger := Logger()
+	SetLogger(testLogger)
+	defer SetLogger(originalLogger)
 
 	secondSchema, err := CreateSchema(c, &NewUser{})
 	if err != nil {
@@ -168,10 +181,23 @@ func TestCreateSchema(t *testing.T) {
 	}
 	assert.Len(t, firstSchema.Schema, 0)
 	assert.Len(t, firstSchema.Types, 2)
+
+	// Verify we captured schema conflict logs
+	logs := logSink.GetLogs()
+	assert.Greater(t, len(logs), 0, "Should have captured log messages")
+	conflictFound := false
+	for _, msg := range logs {
+		if strings.Contains(msg, "schema conflict") {
+			conflictFound = true
+			break
+		}
+	}
+	assert.True(t, conflictFound, "Should have logged schema conflicts")
 }
 
 func TestMutateSchema(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 	defer dropAll(c)
 
 	firstSchema, err := CreateSchema(c, &User{})
@@ -204,6 +230,7 @@ func TestMutateSchema(t *testing.T) {
 
 func TestOneToOneSchema(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 	defer dropAll(c)
 
 	schema, err := CreateSchema(c, &OneToOne{})
@@ -215,6 +242,7 @@ func TestOneToOneSchema(t *testing.T) {
 
 func Test_fetchExistingSchema(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 	defer dropAll(c)
 
 	schema, err := CreateSchema(c, &User{})
@@ -236,6 +264,7 @@ func Test_fetchExistingSchema(t *testing.T) {
 
 func Test_fetchExistingTypes(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 	defer dropAll(c)
 
 	schema, err := CreateSchema(c, &User{})
@@ -250,3 +279,150 @@ func Test_fetchExistingTypes(t *testing.T) {
 
 	assert.Len(t, types, 2)
 }
+
+func Test_GetSchema(t *testing.T) {
+	c := newDgraphClient()
+	dropAll(c)
+	defer dropAll(c)
+
+	type SmallStruct struct {
+		UID   string   `json:"uid,omitempty"`
+		Name  string   `json:"name,omitempty" dgraph:"index=term"`
+		DType []string `json:"dgraph.type"`
+	}
+	_, err := CreateSchema(c, &SmallStruct{})
+	if err != nil {
+		t.Error(err)
+	}
+
+	schema, err := GetSchema(c)
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Contains(t, schema, "name: string @index(term) .")
+	assert.Contains(t, schema, "type SmallStruct {\n\tname\n}")
+}
+
+func TestMissingDType(t *testing.T) {
+	c := newDgraphClient()
+	dropAll(c)
+	defer dropAll(c)
+
+	type SchemaTest struct {
+		UID  string `json:"uid,omitempty"`
+		Name string `json:"name,omitempty"`
+	}
+	_, err := CreateSchema(c, &SchemaTest{})
+	require.Error(t, err, "expected error due to missing required field DType []string `json:\"dgraph.type\"` in type SchemaTest")
+}
+
+func TestParseStructTag_Comprehensive(t *testing.T) {
+	tests := []struct {
+		tag     string
+		expects rawSchema
+		comment string
+	}{
+		{
+			tag:     "index=term unique upsert reverse count list lang noconflict predicate=my_predicate type=int",
+			expects: rawSchema{Index: "term", Unique: true, Upsert: true, Reverse: true, Count: true, List: true, Lang: true, Noconflict: true, Predicate: "my_predicate", Type: "int"},
+			comment: "All boolean and value tokens",
+		},
+		{
+			tag:     "index=hash",
+			expects: rawSchema{Index: "hash"},
+			comment: "Simple index",
+		},
+		{
+			tag:     "index=hnsw(metric:\"cosine\")",
+			expects: rawSchema{Index: "hnsw(metric:\"cosine\")"},
+			comment: "HNSW with metric",
+		},
+		{
+			tag:     "index=hnsw(metric:\"euclidean\",exponent:\"6\")",
+			expects: rawSchema{Index: "hnsw(metric:\"euclidean\",exponent:\"6\")"},
+			comment: "HNSW with metric and exponent",
+		},
+		{
+			tag:     "reverse",
+			expects: rawSchema{Reverse: true},
+			comment: "Single boolean flag",
+		},
+		{
+			tag:     "predicate=foo type=uid",
+			expects: rawSchema{Predicate: "foo", Type: "uid"},
+			comment: "Predicate and type override",
+		},
+		{
+			tag:     "unique",
+			expects: rawSchema{Unique: true},
+			comment: "Unique flag only - should add hash tokenizer later",
+		},
+		{
+			tag:     "unique index=term",
+			expects: rawSchema{Unique: true, Index: "term"},
+			comment: "Unique with non-hash/exact tokenizer - should add hash tokenizer later",
+		},
+		{
+			tag:     "unique index=hash",
+			expects: rawSchema{Unique: true, Index: "hash"},
+			comment: "Unique with hash tokenizer - shouldn't add duplicate hash",
+		},
+		{
+			tag:     "unique index=exact",
+			expects: rawSchema{Unique: true, Index: "exact"},
+			comment: "Unique with exact tokenizer - doesn't need hash added",
+		},
+	}
+
+	for _, tt := range tests {
+		schema, err := parseStructTag(tt.tag)
+		assert.NoError(t, err, tt.comment)
+		assert.Equal(t, tt.expects.Index, schema.Index, tt.comment+": index")
+		assert.Equal(t, tt.expects.Unique, schema.Unique, tt.comment+": unique")
+		assert.Equal(t, tt.expects.Upsert, schema.Upsert, tt.comment+": upsert")
+		assert.Equal(t, tt.expects.Reverse, schema.Reverse, tt.comment+": reverse")
+		assert.Equal(t, tt.expects.Count, schema.Count, tt.comment+": count")
+		assert.Equal(t, tt.expects.List, schema.List, tt.comment+": list")
+		assert.Equal(t, tt.expects.Lang, schema.Lang, tt.comment+": lang")
+		assert.Equal(t, tt.expects.Noconflict, schema.Noconflict, tt.comment+": noconflict")
+		assert.Equal(t, tt.expects.Predicate, schema.Predicate, tt.comment+": predicate")
+		assert.Equal(t, tt.expects.Type, schema.Type, tt.comment+": type")
+	}
+}
+
+// testLogSink implements logr.LogSink for testing
+type testLogSink struct {
+	logs  []string
+	mutex sync.Mutex
+}
+
+func newTestLogSink() *testLogSink {
+	return &testLogSink{logs: make([]string, 0)}
+}
+
+// Capture logs any message passed to it
+func (l *testLogSink) capture(msg string) {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	l.logs = append(l.logs, msg)
+}
+
+// GetLogs returns all captured logs
+func (l *testLogSink) GetLogs() []string {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	return l.logs
+}
+
+// Implementation of logr.LogSink interface
+func (l *testLogSink) Init(logr.RuntimeInfo)  {}
+func (l *testLogSink) Enabled(level int) bool { return true }
+func (l *testLogSink) Info(level int, msg string, kvs ...interface{}) {
+	l.capture(msg)
+}
+func (l *testLogSink) Error(err error, msg string, kvs ...interface{}) {
+	l.capture(msg)
+}
+func (l *testLogSink) WithValues(kvs ...interface{}) logr.LogSink { return l }
+func (l *testLogSink) WithName(name string) logr.LogSink          { return l }

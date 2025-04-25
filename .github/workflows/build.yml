@@ -29,7 +29,7 @@ jobs:
         dgraph alpha &
 
     - name: Run coverage
-      run: go test -race -coverprofile=coverage.out -covermode=atomic
+      run: go test -race -coverprofile=coverage.out -covermode=atomic -p 1 -parallel 1
     - name: Upload coverage to Codecov
       run: bash <(curl -s https://codecov.io/bash)
 
