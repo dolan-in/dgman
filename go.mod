@@ -1,4 +1,5 @@
-module github.com/dolan-in/dgman/v2
+//module github.com/dolan-in/dgman/v2
+module github.com/matthewmcneely/dgman/v2
 
 require (
 	github.com/dgraph-io/dgo/v240 v240.2.0
