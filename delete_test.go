@@ -25,6 +25,7 @@ import (
 
 func TestDelete(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 
 	_, err := CreateSchema(c, TestUser{})
 	if err != nil {
@@ -121,6 +122,7 @@ func TestDelete(t *testing.T) {
 
 func TestDeleteQuery(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 
 	_, err := CreateSchema(c, TestUser{})
 	if err != nil {
@@ -202,6 +204,7 @@ func TestDeleteQuery(t *testing.T) {
 
 func TestDeleteQueryCond(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 
 	_, err := CreateSchema(c, TestUser{})
 	if err != nil {
@@ -266,6 +269,7 @@ func TestDeleteQueryCond(t *testing.T) {
 func TestDeleteQueryCondUidFunc(t *testing.T) {
 	log.SetFlags(log.Llongfile)
 	c := newDgraphClient()
+	dropAll(c)
 
 	_, err := CreateSchema(c, TestUser{})
 	if err != nil {
@@ -350,6 +354,7 @@ func TestDeleteQueryCondUidFunc(t *testing.T) {
 
 func TestDeleteNode(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 
 	_, err := CreateSchema(c, TestUser{})
 	if err != nil {
@@ -385,6 +390,7 @@ func TestDeleteNode(t *testing.T) {
 
 func TestDeleteEdge(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 
 	_, err := CreateSchema(c, TestUser{})
 	if err != nil {

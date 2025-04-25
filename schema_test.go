@@ -149,6 +149,7 @@ func TestGetNodeType(t *testing.T) {
 
 func TestCreateSchema(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 	defer dropAll(c)
 
 	firstSchema, err := CreateSchema(c, &User{})
@@ -196,6 +197,7 @@ func TestCreateSchema(t *testing.T) {
 
 func TestMutateSchema(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 	defer dropAll(c)
 
 	firstSchema, err := CreateSchema(c, &User{})
@@ -228,6 +230,7 @@ func TestMutateSchema(t *testing.T) {
 
 func TestOneToOneSchema(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 	defer dropAll(c)
 
 	schema, err := CreateSchema(c, &OneToOne{})
@@ -239,6 +242,7 @@ func TestOneToOneSchema(t *testing.T) {
 
 func Test_fetchExistingSchema(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 	defer dropAll(c)
 
 	schema, err := CreateSchema(c, &User{})
@@ -260,6 +264,7 @@ func Test_fetchExistingSchema(t *testing.T) {
 
 func Test_fetchExistingTypes(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 	defer dropAll(c)
 
 	schema, err := CreateSchema(c, &User{})
@@ -277,6 +282,7 @@ func Test_fetchExistingTypes(t *testing.T) {
 
 func TestMissingDType(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 	defer dropAll(c)
 
 	type SchemaTest struct {

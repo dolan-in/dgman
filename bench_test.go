@@ -40,6 +40,7 @@ func createFlatStruct() FlatStruct {
 
 func BenchmarkMutateBasic(b *testing.B) {
 	c := newDgraphClient()
+	dropAll(c)
 	CreateSchema(c, FlatStruct{})
 	defer dropAll(c)
 
@@ -53,6 +54,7 @@ func BenchmarkMutateBasic(b *testing.B) {
 
 func BenchmarkMutate(b *testing.B) {
 	c := newDgraphClient()
+	dropAll(c)
 	CreateSchema(c, FlatStruct{})
 	defer dropAll(c)
 
@@ -66,6 +68,7 @@ func BenchmarkMutate(b *testing.B) {
 
 func BenchmarkMutateBasicNested(b *testing.B) {
 	c := newDgraphClient()
+	dropAll(c)
 	CreateSchema(c, TestUser{})
 	defer dropAll(c)
 
@@ -79,6 +82,7 @@ func BenchmarkMutateBasicNested(b *testing.B) {
 
 func BenchmarkMutateNested(b *testing.B) {
 	c := newDgraphClient()
+	dropAll(c)
 	CreateSchema(c, TestUser{})
 	defer dropAll(c)
 

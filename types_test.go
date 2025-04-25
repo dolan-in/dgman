@@ -34,6 +34,7 @@ type TestFloats struct {
 
 func TestMutationFloats(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
 
 	_, err := CreateSchema(c, TestFloats{})
 	if err != nil {
@@ -86,17 +87,18 @@ type TestItem struct {
 
 func TestVectorMutation(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
+	defer dropAll(c)
 
 	// Create schema for the test item with vector field
 	schema, err := CreateSchema(c, TestItem{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer dropAll(c)
 
 	// Check the schema
 	assert.Equal(t, "name: string @index(term) .", schema.Schema["name"].String())
-	assert.Equal(t, "identifier: string @index(term) @upsert .", schema.Schema["identifier"].String())
+	assert.Equal(t, "identifier: string @index(term,hash) @upsert @unique .", schema.Schema["identifier"].String())
 	assert.Equal(t, "description: string .", schema.Schema["description"].String())
 	assert.Equal(t, "vector: float32vector @index(hnsw(metric:\"cosine\")) .", schema.Schema["vector"].String())
 
@@ -150,6 +152,8 @@ func TestVectorMutation(t *testing.T) {
 
 func TestVectorMutationEuclidean(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
+	defer dropAll(c)
 
 	// Create a slightly different struct for euclidean metric
 	type EuclideanItem struct {
@@ -201,11 +205,13 @@ func TestVectorMutationEuclidean(t *testing.T) {
 
 func TestVectorSimilaritySearch(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
+	defer dropAll(c)
+
 	_, err := CreateSchema(c, TestItem{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer dropAll(c)
 
 	// Insert several items with different vectors
 	items := []TestItem{

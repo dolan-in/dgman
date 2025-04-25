@@ -49,6 +49,7 @@ func TestGetByUID(t *testing.T) {
 	}
 
 	c := newDgraphClient()
+	dropAll(c)
 	defer dropAll(c)
 
 	_, err := CreateSchema(c, &TestModel{})
@@ -83,6 +84,7 @@ func TestGetByFilter(t *testing.T) {
 	}
 
 	c := newDgraphClient()
+	dropAll(c)
 	if _, err := CreateSchema(c, source); err != nil {
 		t.Error(err)
 	}
@@ -146,6 +148,7 @@ func TestCascade(t *testing.T) {
 	}
 
 	c := newDgraphClient()
+	dropAll(c)
 	if _, err := CreateSchema(c, &TestModel{}); err != nil {
 		t.Error(err)
 	}
@@ -223,6 +226,7 @@ func TestFind(t *testing.T) {
 	}
 
 	c := newDgraphClient()
+	dropAll(c)
 	if _, err := CreateSchema(c, &TestModel{}); err != nil {
 		t.Error(err)
 	}
@@ -256,6 +260,7 @@ func TestGetByQuery(t *testing.T) {
 	}
 
 	c := newDgraphClient()
+	dropAll(c)
 	if _, err := CreateSchema(c, &TestModel{}); err != nil {
 		t.Error(err)
 	}
@@ -315,6 +320,7 @@ func TestGetAllWithDepth(t *testing.T) {
 	}
 
 	c := newDgraphClient()
+	dropAll(c)
 	if _, err := CreateSchema(c, &TestModel{}); err != nil {
 		t.Error(err)
 	}
@@ -353,6 +359,7 @@ func TestPagination(t *testing.T) {
 		})
 	}
 	c := newDgraphClient()
+	dropAll(c)
 	if _, err := CreateSchema(c, &TestModel{}); err != nil {
 		t.Error(err)
 	}
@@ -410,6 +417,7 @@ func TestOrder(t *testing.T) {
 		})
 	}
 	c := newDgraphClient()
+	dropAll(c)
 	if _, err := CreateSchema(c, &TestModel{}); err != nil {
 		t.Error(err)
 	}
@@ -467,6 +475,8 @@ func TestOrder(t *testing.T) {
 
 func TestQueryBlock(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
+
 	if _, err := CreateSchema(c, &TestModel{}); err != nil {
 		t.Error(err)
 	}
@@ -516,6 +526,8 @@ func TestQueryBlock(t *testing.T) {
 
 func TestGetNodesAndCount(t *testing.T) {
 	c := newDgraphClient()
+	dropAll(c)
+
 	if _, err := CreateSchema(c, &TestModel{}); err != nil {
 		t.Error(err)
 	}
@@ -688,4 +700,11 @@ func Test_parseQueryWithParams(t *testing.T) {
 			assert.Equal(t, tt.want, parseQueryWithParams(tt.args.query, tt.args.params))
 		})
 	}
+}
+
+func TestRootFunc(t *testing.T) {
+	query := NewQuery().Model(&TestItem{}).
+		RootFunc("similar_to(vector, 1, $vec)").
+		Vars("similar_to($vec)", map[string]string{"$vec": "[0.51, 0.39, 0.29, 0.19, 0.09]"})
+	fmt.Println(query.String())
 }
