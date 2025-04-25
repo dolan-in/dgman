@@ -78,7 +78,6 @@ func (d *bigFloatDecoder) Decode(ptr unsafe.Pointer, iter *jsoniter.Iterator) {
 // VectorFloat32 represents a float32vector in Dgraph
 type VectorFloat32 struct {
 	Values []float32
-	Metric string // "cosine", "euclidean", or "dotproduct"
 }
 
 // SchemaType implements SchemaType interface to provide the Dgraph type
