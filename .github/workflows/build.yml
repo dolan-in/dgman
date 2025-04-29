@@ -24,12 +24,15 @@ jobs:
     
     - name: Set up Dgraph
       run: |
-        curl https://get.dgraph.io -sSf | bash /dev/stdin "-y"
-        dgraph zero &
-        dgraph alpha &
+        wget https://github.com/hypermodeinc/dgraph/releases/download/v24.1.2/dgraph-linux-amd64.tar.gz
+        tar -xvf dgraph-linux-amd64.tar.gz
+        chmod +x dgraph/dgraph
+        ./dgraph/dgraph zero &
+        ./dgraph/dgraph alpha &
 
     - name: Run coverage
       run: go test -race -coverprofile=coverage.out -covermode=atomic -p 1 -parallel 1
+
     - name: Upload coverage to Codecov
       run: bash <(curl -s https://codecov.io/bash)
 
