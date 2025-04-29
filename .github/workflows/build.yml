@@ -26,9 +26,9 @@ jobs:
       run: |
         wget https://github.com/hypermodeinc/dgraph/releases/download/v24.1.2/dgraph-linux-amd64.tar.gz
         tar -xvf dgraph-linux-amd64.tar.gz
-        chmod +x dgraph/dgraph
-        ./dgraph/dgraph zero &
-        ./dgraph/dgraph alpha &
+        chmod +x dgraph
+        ./dgraph zero &
+        ./dgraph alpha &
 
     - name: Run coverage
       run: go test -race -coverprofile=coverage.out -covermode=atomic -p 1 -parallel 1
