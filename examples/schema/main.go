@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dolan-in/dgman/v2"
-
-	"github.com/dgraph-io/dgo/v210"
-
-	"github.com/dgraph-io/dgo/v210/protos/api"
+	"github.com/dgraph-io/dgo/v240"
+	"github.com/dgraph-io/dgo/v240/protos/api"
 	"google.golang.org/grpc"
+
+	"github.com/dolan-in/dgman/v2"
 )
 
 // User is a node, nodes have a uid field

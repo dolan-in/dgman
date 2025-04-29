@@ -23,7 +23,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dgraph-io/dgo/v210/protos/api"
+	"github.com/dgraph-io/dgo/v240/protos/api"
 	"github.com/dolan-in/reflectwalk"
 	"github.com/pkg/errors"
 )
@@ -125,6 +125,8 @@ func (m *mutation) mutate() ([]string, error) {
 		return nil, errors.Wrap(err, "marshal setJSON failed")
 	}
 
+	Logger().WithName("dgman").V(3).Info("mutate", "setJSON", string(setJSON))
+
 	resp, err := m.txn.txn.Mutate(m.txn.ctx, &api.Mutation{
 		SetJson:   setJSON,
 		CommitNow: m.txn.commitNow,
@@ -147,6 +149,8 @@ func (m *mutation) do() ([]string, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "generate request failed")
 	}
+
+	Logger().WithName("dgman").V(3).Info("do request", "request", m.request.String())
 
 	resp, err := m.txn.txn.Do(m.txn.ctx, &m.request)
 	if err != nil {
@@ -263,7 +267,7 @@ func copyStructToMap(structVal reflect.Value, target map[string]interface{}) {
 		if len(jsonTags) == 0 {
 			continue
 		}
-		if len(jsonTags) == 2 && jsonTags[1] == "omitempty" && isNull(field.Interface()) {
+		if len(jsonTags) == 2 && (jsonTags[1] == "omitempty" || jsonTags[1] == "omitzero") && isNull(field.Interface()) {
 			continue
 		}
 		target[jsonTags[0]] = field.Interface()

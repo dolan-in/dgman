@@ -18,25 +18,21 @@ package dgman
 
 import (
 	"context"
-
 	"fmt"
-	"log"
+	"math/big"
 	"reflect"
+	"regexp"
 	"strings"
+	"time"
 
-	"github.com/dgraph-io/dgo/v210/protos/api"
-	"github.com/kr/logfmt"
-
-	"github.com/dgraph-io/dgo/v210"
+	"github.com/dgraph-io/dgo/v240"
+	"github.com/dgraph-io/dgo/v240/protos/api"
 )
 
 const (
 	tagName             = "dgraph"
 	predicateDgraphType = "dgraph.type"
 	predicateUid        = "uid"
-
-	schemaUid     = "uid"
-	schemaUidList = "[uid]"
 )
 
 type rawSchema struct {
@@ -66,6 +62,7 @@ type Schema struct {
 	Noconflict bool `json:"no_conflict"`
 	Unique     bool
 	OmitEmpty  bool
+	Metric     string
 }
 
 func (s Schema) String() string {
@@ -74,11 +71,41 @@ func (s Schema) String() string {
 		t = fmt.Sprintf("[%s]", t)
 	}
 	schema := fmt.Sprintf("%s: %s ", s.Predicate, t)
+	if s.Unique {
+		// Check if hash or exact already exists in tokenizers
+		hasHashOrExact := false
+		hasHash := false
+
+		for _, tokenizer := range s.Tokenizer {
+			if tokenizer == "hash" {
+				hasHash = true
+				hasHashOrExact = true
+			} else if tokenizer == "exact" {
+				hasHashOrExact = true
+			}
+		}
+
+		// Only add hash if neither hash nor exact exists and hash isn't already present
+		if !hasHashOrExact && !hasHash {
+			s.Tokenizer = append(s.Tokenizer, "hash")
+		}
+	}
 	if s.Index {
 		schema += fmt.Sprintf("@index(%s) ", strings.Join(s.Tokenizer, ","))
+	} else if len(s.Tokenizer) > 0 {
+		// Dgraph does not report an index on float32vector when hnsw is used
+		tokenizer := s.Tokenizer[0]
+		// Remove quotes from pseudo metric and exponent parameters
+		tokenizer = strings.ReplaceAll(tokenizer, "\"metric\":", "metric:")
+		tokenizer = strings.ReplaceAll(tokenizer, "\"exponent\":", "exponent:")
+		schema += fmt.Sprintf("@index(%s) ", tokenizer)
 	}
 	if s.Upsert || s.Unique {
 		schema += "@upsert "
+		switch t {
+		case "int", "string":
+			schema += "@unique "
+		}
 	}
 	if s.Count {
 		schema += "@count "
@@ -140,7 +167,7 @@ func (t *TypeSchema) Marshal(parentType string, models ...interface{}) {
 	for _, model := range models {
 		current, err := reflectType(model)
 		if err != nil {
-			log.Println(err)
+			Logger().WithName("dgman").Error(err, "reflectType error")
 			continue
 		}
 
@@ -177,7 +204,7 @@ func (t *TypeSchema) Marshal(parentType string, models ...interface{}) {
 
 			s, err := parseDgraphTag(&field)
 			if err != nil {
-				log.Println("unmarshal dgraph tag: ", err)
+				Logger().WithName("dgman").Error(err, "unmarshal dgraph tag")
 				continue
 			}
 
@@ -203,7 +230,7 @@ func (t *TypeSchema) Marshal(parentType string, models ...interface{}) {
 			// each type should uniquely specify a predicate, that's why use a map on predicate
 			t.Types[nodeType][s.Predicate] = s
 			if exists && schema.String() != s.String() {
-				log.Printf("conflicting schema %s, already defined as \"%s\", trying to define \"%s\"\n", s.Predicate, schema.String(), s.String())
+				Logger().WithName("dgman").Info("schema conflict during marshalling", "predicate", s.Predicate, "existing", schema.String(), "new", s.String())
 			} else {
 				t.Schema[s.Predicate] = s
 			}
@@ -238,10 +265,13 @@ func getSchemaType(fieldType reflect.Type) string {
 		sliceType := fieldType.Elem()
 		return fmt.Sprintf("[%s]", getSchemaType(sliceType))
 	case reflect.Struct:
-		switch fieldType.PkgPath() {
-		case "time":
-			// golang std time
+		switch fieldType {
+		case reflect.TypeOf(time.Time{}):
 			return "datetime"
+		case reflect.TypeOf(big.Float{}):
+			return "bigfloat"
+		case reflect.TypeOf(VectorFloat32{}):
+			return "float32vector"
 		default:
 			// one-to-one relation
 			return "uid"
@@ -325,11 +355,98 @@ func reflectType(model interface{}) (reflect.Type, error) {
 }
 
 func parseStructTag(tag string) (*rawSchema, error) {
-	var schema rawSchema
-	if err := logfmt.Unmarshal([]byte(tag), &schema); err != nil {
-		return nil, err
+	schema := &rawSchema{}
+
+	// Special case for HNSW index - extract it first to prevent splitting issues
+	hnswRegex := regexp.MustCompile(`index=hnsw\([^)]+\)`)
+	hnswMatch := hnswRegex.FindString(tag)
+	if hnswMatch != "" {
+		// Extract just the index value (everything after "index=")
+		schema.Index = strings.TrimPrefix(hnswMatch, "index=")
+		// Remove the HNSW part from the tag to avoid double processing
+		tag = strings.Replace(tag, hnswMatch, "", 1)
 	}
-	return &schema, nil
+
+	// Split by space, but keep quoted substrings together
+	fields := regexp.MustCompile(`([\w]+=[^\s"']+|[\w]+\s*=\s*"[^"]*"|[\w]+\s*=\s*'[^']*'|[\w]+|[\w]+=[^\s]+)`).FindAllString(tag, -1)
+
+	for _, field := range fields {
+		if field == "" {
+			continue
+		}
+		kv := strings.SplitN(field, "=", 2)
+		key := strings.TrimSpace(kv[0])
+		var value string
+		if len(kv) == 2 {
+			value = strings.Trim(strings.TrimSpace(kv[1]), `"'`)
+		}
+
+		switch key {
+		case "index":
+			// Only set the index if we didn't already find an HNSW index
+			if schema.Index == "" {
+				schema.Index = value
+			}
+		case "reverse":
+			schema.Reverse = true
+		case "count":
+			schema.Count = true
+		case "list":
+			schema.List = true
+		case "upsert":
+			schema.Upsert = true
+		case "lang":
+			schema.Lang = true
+		case "noconflict":
+			schema.Noconflict = true
+		case "unique":
+			schema.Unique = true
+		case "predicate":
+			schema.Predicate = value
+		case "type":
+			schema.Type = value
+		}
+	}
+
+	return schema, nil
+}
+
+func GetSchema(c *dgo.Dgraph) (string, error) {
+	schemaQuery := `schema {}`
+
+	tx := c.NewReadOnlyTxn()
+
+	resp, err := tx.Query(context.Background(), schemaQuery)
+	if err != nil {
+		return "", err
+	}
+	type schemaResponse struct {
+		Schema []*Schema `json:"schema"`
+		Types  []struct {
+			Fields []struct {
+				Name string `json:"name"`
+			} `json:"fields"`
+			Name string `json:"name"`
+		} `json:"types"`
+	}
+	var schemas schemaResponse
+	if err = json.Unmarshal(resp.Json, &schemas); err != nil {
+		return "", err
+	}
+
+	var sb strings.Builder
+	for _, s := range schemas.Schema {
+		sb.WriteString(s.String())
+		sb.WriteString("\n")
+	}
+	for _, t := range schemas.Types {
+		sb.WriteString("type " + t.Name + " {\n")
+		for _, field := range t.Fields {
+			sb.WriteString("\t" + field.Name + "\n")
+		}
+		sb.WriteString("}\n")
+	}
+	return sb.String(), nil
 }
 
 func fetchExistingSchema(c *dgo.Dgraph) ([]*Schema, error) {
@@ -415,7 +532,7 @@ func cleanExistingSchema(c *dgo.Dgraph, schemaMap SchemaMap) error {
 	for _, schema := range existingSchema {
 		if s, exists := schemaMap[schema.Predicate]; exists {
 			if s.String() != schema.String() {
-				log.Printf("existing schema %s, already defined as \"%s\", trying to install \"%s\"\n", schema.Predicate, schema.String(), s.String())
+				Logger().WithName("dgman").Info("schema conflict", "predicate", schema.Predicate, "existing", schema.String(), "new", s.String())
 			}
 
 			delete(schemaMap, schema.Predicate)
@@ -430,6 +547,31 @@ func cleanExistingSchema(c *dgo.Dgraph, schemaMap SchemaMap) error {
 func CreateSchema(c *dgo.Dgraph, models ...interface{}) (*TypeSchema, error) {
 	typeSchema := NewTypeSchema()
 	typeSchema.Marshal("", models...)
+
+	// Check for DType field in each model
+	for _, model := range models {
+		modelType := reflect.TypeOf(model)
+		if modelType.Kind() == reflect.Ptr {
+			modelType = modelType.Elem()
+		}
+		foundDType := false
+		for i := 0; i < modelType.NumField(); i++ {
+			field := modelType.Field(i)
+			jsonTag := field.Tag.Get("json")
+
+			// Properly parse the JSON tag to extract just the field name
+			tagParts := strings.Split(jsonTag, ",")
+			fieldName := strings.TrimSpace(tagParts[0])
+
+			if fieldName == "dgraph.type" {
+				foundDType = true
+				break
+			}
+		}
+		if !foundDType {
+			return nil, fmt.Errorf("missing required field DType []string `json:\"dgraph.type\"` in type %s", modelType.Name())
+		}
+	}
 
 	err := cleanExistingSchema(c, typeSchema.Schema)
 	if err != nil {

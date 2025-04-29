@@ -21,24 +21,22 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/dgraph-io/dgo/v210"
-	jsoniter "github.com/json-iterator/go"
-
-	"github.com/dgraph-io/dgo/v210/protos/api"
-	"google.golang.org/grpc"
+	"github.com/dgraph-io/dgo/v240"
+	"github.com/dgraph-io/dgo/v240/protos/api"
 )
 
-var json = jsoniter.ConfigCompatibleWithStandardLibrary
-
 func newDgraphClient() *dgo.Dgraph {
-	d, err := grpc.Dial(os.Getenv("DGMAN_TEST_DATABASE"), grpc.WithInsecure())
+	addr := os.Getenv("DGMAN_TEST_DATABASE")
+	if addr == "" {
+		addr = "localhost:9080"
+	}
+	addr = "dgraph://" + addr
+	client, err := dgo.Open(addr)
 	if err != nil {
-		panic(err)
+		panic("Error opening Dgraph client: " + err.Error())
 	}
 
-	return dgo.NewDgraphClient(
-		api.NewDgraphClient(d),
-	)
+	return client
 }
 
 func dropAll(client ...*dgo.Dgraph) {
