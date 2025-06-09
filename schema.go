@@ -395,6 +395,7 @@ func parseStructTag(tag string) (*rawSchema, error) {
 			schema.List = true
 		case "upsert":
 			schema.Upsert = true
+			schema.Unique = true
 		case "lang":
 			schema.Lang = true
 		case "noconflict":
