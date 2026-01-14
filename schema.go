@@ -50,19 +50,21 @@ type rawSchema struct {
 }
 
 type Schema struct {
-	Predicate  string
-	Type       string
-	Index      bool
-	Tokenizer  []string
-	Reverse    bool
-	Count      bool
-	List       bool
-	Upsert     bool
-	Lang       bool
-	Noconflict bool `json:"no_conflict"`
-	Unique     bool
-	OmitEmpty  bool
-	Metric     string
+	Predicate        string
+	Type             string
+	Index            bool
+	Tokenizer        []string
+	Reverse          bool
+	Count            bool
+	List             bool
+	Upsert           bool
+	Lang             bool
+	Noconflict       bool `json:"no_conflict"`
+	Unique           bool
+	OmitEmpty        bool
+	Metric           string
+	ManagedReverse   bool   // true if this is a managed reverse edge (json:"~predicate" + dgraph:"reverse")
+	ForwardPredicate string // the forward predicate name (without ~) for managed reverse edges
 }
 
 func (s Schema) String() string {
@@ -209,11 +211,22 @@ func (t *TypeSchema) Marshal(parentType string, models ...interface{}) {
 			}
 
 			schema, exists := t.Schema[s.Predicate]
+
+			// For managed reverse edges, we still need to traverse the edge types
+			// to create their schemas, but we don't add the reverse predicate itself
+			if s.ManagedReverse {
+				if s.Type == "uid" || s.Type == "[uid]" {
+					edgePtr := reflect.New(fieldType)
+					t.Marshal("", edgePtr.Interface())
+				}
+				continue
+			}
+
 			parse := s.Predicate != "" &&
 				s.Predicate != "uid" && // don't parse uid
 				s.Predicate != predicateDgraphType && // don't parse dgraph.type
 				!strings.Contains(s.Predicate, "|") && // don't parse facet
-				s.Predicate[0] != '~' && // don't parse reverse edge
+				s.Predicate[0] != '~' && // don't parse reverse edge (non-managed)
 				!strings.Contains(s.Predicate, "@") // don't parse non-primary lang predicate
 
 			if !parse {
@@ -332,6 +345,15 @@ func parseDgraphTag(field *reflect.StructField) (*Schema, error) {
 			schema.Tokenizer = strings.Split(dgraphProps.Index, ",")
 		}
 	}
+
+	// Detect managed reverse edge: json:"~predicate" + dgraph:"reverse"
+	// This allows defining reverse edges on the "parent" side that will
+	// create forward edges on children during mutation
+	if strings.HasPrefix(schema.Predicate, "~") && schema.Reverse {
+		schema.ManagedReverse = true
+		schema.ForwardPredicate = schema.Predicate[1:] // strip the ~
+	}
+
 	return schema, nil
 }
 

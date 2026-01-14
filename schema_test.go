@@ -17,6 +17,7 @@
 package dgman
 
 import (
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -426,3 +427,116 @@ func (l *testLogSink) Error(err error, msg string, kvs ...interface{}) {
 }
 func (l *testLogSink) WithValues(kvs ...interface{}) logr.LogSink { return l }
 func (l *testLogSink) WithName(name string) logr.LogSink          { return l }
+
+// Test types for managed reverse edges
+type TestStudent struct {
+	UID         string       `json:"uid,omitempty"`
+	Name        string       `json:"name,omitempty" dgraph:"index=exact"`
+	Takes_Class []*TestClass `json:"takes_class,omitempty" dgraph:"reverse"`
+	DType       []string     `json:"dgraph.type,omitempty"`
+}
+
+type TestClass struct {
+	UID      string         `json:"uid,omitempty"`
+	Name     string         `json:"name,omitempty" dgraph:"index=exact"`
+	Students []*TestStudent `json:"~takes_class,omitempty" dgraph:"reverse"` // managed reverse edge
+	DType    []string       `json:"dgraph.type,omitempty"`
+}
+
+func TestManagedReverseEdgeParsing(t *testing.T) {
+	// Test that ~predicate + reverse tag is detected as managed reverse edge
+	typeSchema := NewTypeSchema()
+	typeSchema.Marshal("", &TestClass{})
+
+	schemaStr := typeSchema.String()
+
+	// Expected schema components - note that ~takes_class is NOT included (it's a managed reverse edge)
+	// Only the forward predicate takes_class appears with @reverse directive
+	//
+	// Generated schema will look like:
+	//   takes_class: [uid] @reverse .
+	//   name: string @index(exact) .
+	//
+	//   type TestClass {
+	//       name
+	//   }
+	//   type TestStudent {
+	//       name
+	//       takes_class
+	//   }
+
+	// Verify all expected predicates
+	assert.Contains(t, schemaStr, "takes_class: [uid] @reverse .")
+	assert.Contains(t, schemaStr, "name: string @index(exact) .")
+
+	// Verify ~takes_class is NOT in schema output (managed reverse edge)
+	assert.NotContains(t, schemaStr, "~takes_class")
+
+	// Verify type definitions
+	assert.Contains(t, schemaStr, "type TestClass {")
+	assert.Contains(t, schemaStr, "type TestStudent {")
+
+	// The ~takes_class predicate should NOT be in the schema (it's derived)
+	_, exists := typeSchema.Schema["~takes_class"]
+	assert.False(t, exists, "managed reverse edge should not be added to schema")
+
+	// But takes_class should be in schema (from TestStudent)
+	takesClass, exists := typeSchema.Schema["takes_class"]
+	assert.True(t, exists, "forward predicate should be in schema")
+	assert.True(t, takesClass.Reverse, "forward predicate should have reverse directive")
+
+	// TestStudent type should have takes_class
+	studentType, exists := typeSchema.Types["TestStudent"]
+	assert.True(t, exists)
+	_, hasTakesClass := studentType["takes_class"]
+	assert.True(t, hasTakesClass, "TestStudent should have takes_class predicate")
+
+	// TestClass type should NOT have ~takes_class (managed reverse)
+	classType, exists := typeSchema.Types["TestClass"]
+	assert.True(t, exists)
+	_, hasReverseEdge := classType["~takes_class"]
+	assert.False(t, hasReverseEdge, "TestClass should not have ~takes_class in type definition")
+}
+
+func TestParseDgraphTagManagedReverse(t *testing.T) {
+	// Test direct parsing of managed reverse edge tag
+	type TestType struct {
+		Children []*TestStudent `json:"~parent_edge,omitempty" dgraph:"reverse"`
+	}
+
+	typeSchema := NewTypeSchema()
+	typeSchema.Marshal("", &TestType{})
+
+	// Manually parse the tag to verify ManagedReverse and ForwardPredicate
+	field, _ := reflect.TypeOf(TestType{}).FieldByName("Children")
+	schema, err := parseDgraphTag(&field)
+	require.NoError(t, err)
+
+	assert.True(t, schema.ManagedReverse, "should be marked as managed reverse")
+	assert.Equal(t, "parent_edge", schema.ForwardPredicate, "forward predicate should be extracted")
+	assert.Equal(t, "~parent_edge", schema.Predicate, "predicate should retain tilde")
+}
+
+func TestGetManagedReverseEdges(t *testing.T) {
+	reverseEdges := getManagedReverseEdges(&TestClass{})
+
+	require.Len(t, reverseEdges, 1, "should find one managed reverse edge")
+	assert.Equal(t, "~takes_class", reverseEdges[0].predicate)
+	assert.Equal(t, "takes_class", reverseEdges[0].forwardPredicate)
+}
+
+func TestExpandAllWithReverseEdges(t *testing.T) {
+	// Test that expandAllWithReverseEdges includes the reverse edge block
+	query := expandAllWithReverseEdges(1, &TestClass{})
+
+	assert.Contains(t, query, "expand(_all_)", "should contain expand(_all_)")
+	assert.Contains(t, query, "~takes_class", "should contain reverse edge block")
+}
+
+func TestExpandAllWithNestedReverseEdges(t *testing.T) {
+	// Test with Department which has nested reverse edges through Course
+	query := expandAllWithReverseEdges(2, &Department{})
+
+	assert.Contains(t, query, "~in_department", "should contain Department's reverse edge")
+	assert.Contains(t, query, "~in_course", "should contain Course's reverse edge (nested)")
+}
