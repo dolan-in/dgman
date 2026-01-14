@@ -23,7 +23,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dgraph-io/dgo/v240/protos/api"
+	"github.com/dgraph-io/dgo/v250/protos/api"
 	"github.com/dolan-in/reflectwalk"
 	"github.com/pkg/errors"
 )
@@ -131,7 +131,9 @@ func (m *mutation) mutate() ([]string, error) {
 		SetJson:   setJSON,
 		CommitNow: m.txn.commitNow,
 	})
+	Logger().WithName("dgman").V(3).Info("mutate", "resp", resp)
 	if err != nil {
+		Logger().WithName("dgman").Error(err, "txn mutate failed")
 		return nil, errors.Wrap(err, "txn mutate failed")
 	}
 

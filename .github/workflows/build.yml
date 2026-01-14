@@ -22,6 +22,7 @@ jobs:
       with:
         go-version-file: go.mod
     
+    # TODO: Convert to a matrix strategy to test multiple Dgraph versions
     - name: Set up Dgraph
       run: |
         wget https://github.com/hypermodeinc/dgraph/releases/download/v24.1.2/dgraph-linux-amd64.tar.gz
