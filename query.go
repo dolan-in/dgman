@@ -283,6 +283,120 @@ func expandAll(depth int) string {
 	return buffer.String()
 }
 
+// expandAllWithReverseEdges generates an expand query that includes managed reverse edges
+func expandAllWithReverseEdges(depth int, model interface{}) string {
+	var buffer strings.Builder
+
+	buffer.WriteString("{\n\t\tuid\n\t\tdgraph.type\n\t\texpand(_all_)")
+	expandPredicate(&buffer, depth)
+
+	// Add explicit reverse edge blocks for managed reverse edges
+	writeReverseEdgeBlocks(&buffer, model, depth, 0, make(map[string]bool))
+
+	buffer.WriteString("\n\t}")
+
+	return buffer.String()
+}
+
+// writeReverseEdgeBlocks recursively adds reverse edge blocks for a model and its nested types
+// The depth parameter controls how deep to expand, preventing infinite recursion for self-referential types
+func writeReverseEdgeBlocks(buffer *strings.Builder, model interface{}, depth int, currentLevel int, visited map[string]bool) {
+	if model == nil || currentLevel > depth {
+		return
+	}
+
+	modelType := reflect.TypeOf(model)
+	modelType = getElemType(modelType)
+	if modelType.Kind() != reflect.Struct {
+		return
+	}
+
+	// Note: We intentionally don't check visited map here to allow self-referential
+	// types (like Person with Friends []*Person) to expand at each depth level.
+	// The currentLevel > depth check above prevents infinite recursion.
+
+	reverseEdges := getManagedReverseEdgesWithTypes(model)
+	baseTabs := strings.Repeat("\t", currentLevel+2)
+
+	for _, re := range reverseEdges {
+		buffer.WriteString("\n")
+		buffer.WriteString(baseTabs)
+		buffer.WriteString(re.predicate)
+		buffer.WriteString(" {\n")
+		buffer.WriteString(baseTabs)
+		buffer.WriteString("\tuid\n")
+		buffer.WriteString(baseTabs)
+		buffer.WriteString("\tdgraph.type\n")
+		buffer.WriteString(baseTabs)
+		buffer.WriteString("\texpand(_all_)")
+
+		// Add nested expand if we have depth remaining
+		if currentLevel < depth {
+			expandPredicate(buffer, depth-currentLevel-1)
+		}
+
+		// Recursively add reverse edges for the nested type
+		if re.edgeType != nil && currentLevel < depth {
+			writeReverseEdgeBlocks(buffer, re.edgeType, depth, currentLevel+1, visited)
+		}
+
+		buffer.WriteString("\n")
+		buffer.WriteString(baseTabs)
+		buffer.WriteString("}")
+	}
+}
+
+type reverseEdgeInfo struct {
+	predicate        string      // the reverse predicate (e.g., ~takes_class)
+	forwardPredicate string      // the forward predicate (e.g., takes_class)
+	edgeType         interface{} // the type of the edge target for recursive expansion
+}
+
+// getManagedReverseEdges extracts managed reverse edge info from a model (without type info)
+func getManagedReverseEdges(model interface{}) []reverseEdgeInfo {
+	return getManagedReverseEdgesWithTypes(model)
+}
+
+// getManagedReverseEdgesWithTypes extracts managed reverse edge info including edge types
+func getManagedReverseEdgesWithTypes(model interface{}) []reverseEdgeInfo {
+	if model == nil {
+		return nil
+	}
+
+	modelType := reflect.TypeOf(model)
+	modelType = getElemType(modelType)
+
+	if modelType.Kind() != reflect.Struct {
+		return nil
+	}
+
+	var reverseEdges []reverseEdgeInfo
+	for i := 0; i < modelType.NumField(); i++ {
+		field := modelType.Field(i)
+		schema, err := parseDgraphTag(&field)
+		if err != nil {
+			continue
+		}
+		if schema.ManagedReverse {
+			// Get the edge target type for recursive expansion
+			var edgeType interface{}
+			fieldType := field.Type
+			fieldType = getElemType(fieldType)
+			if fieldType.Kind() == reflect.Struct {
+				edgeType = reflect.New(fieldType).Interface()
+			}
+
+			reverseEdges = append(reverseEdges, reverseEdgeInfo{
+				predicate:        schema.Predicate,
+				forwardPredicate: schema.ForwardPredicate,
+				edgeType:         edgeType,
+			})
+		}
+	}
+
+	return reverseEdges
+}
+
 // All returns expands all predicates, with a depth parameter that specifies
 // how deep should edges be expanded
 func (q *Query) All(depthParam ...int) *Query {
@@ -291,7 +405,12 @@ func (q *Query) All(depthParam ...int) *Query {
 		depth = depthParam[0]
 	}
 
-	q.query = expandAll(depth)
+	// Use model-aware expansion if model is set to include managed reverse edges
+	if q.model != nil {
+		q.query = expandAllWithReverseEdges(depth, q.model)
+	} else {
+		q.query = expandAll(depth)
+	}
 	return q
 }
 

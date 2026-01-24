@@ -114,13 +114,57 @@ func getCreatedUIDs(uidsMap map[string]string) []string {
 }
 
 func (m *mutation) mutate() ([]string, error) {
-	preHook := generateSchemaHook{mutation: m, skipTyping: true}
+	// Build type cache for schema info (including ManagedReverse detection)
+	// Must use skipTyping: false to parse schema for nested types
+	preHook := generateSchemaHook{mutation: m, skipTyping: false}
 	err := reflectwalk.Walk(m.data, preHook)
 	if err != nil {
 		return nil, errors.Wrap(err, "pre-mutation hook failed")
 	}
 
-	setJSON, err := json.Marshal(m.data)
+	// Convert data to map, filtering out managed reverse edges
+	filtered, err := m.filterManagedReverseEdges(m.data)
+	if err != nil {
+		return nil, errors.Wrap(err, "filter managed reverse edges failed")
+	}
+
+	// Collect nested entity mutations from managed reverse edges (children still need to be created)
+	nestedMutations, err := m.collectNestedMutations(m.data)
+	if err != nil {
+		return nil, errors.Wrap(err, "collect nested mutations failed")
+	}
+
+	// Collect forward edge mutations for managed reverse edges
+	forwardEdgeMutations, err := m.collectForwardEdgeMutations(m.data)
+	if err != nil {
+		return nil, errors.Wrap(err, "collect forward edge mutations failed")
+	}
+
+	// Combine: main mutation + nested entity mutations + forward edge mutations
+	// Only use array format if there are additional mutations beyond the main one
+	var toMarshal interface{}
+	if len(nestedMutations) == 0 && len(forwardEdgeMutations) == 0 {
+		// Simple case: just the main mutation (preserves original behavior)
+		toMarshal = filtered
+	} else {
+		// Complex case: multiple mutations need array format
+		var allMutations []interface{}
+		// If filtered is already a slice (root-level slice input), flatten it
+		if filteredSlice, ok := filtered.([]interface{}); ok {
+			allMutations = append(allMutations, filteredSlice...)
+		} else {
+			allMutations = append(allMutations, filtered)
+		}
+		for _, nm := range nestedMutations {
+			allMutations = append(allMutations, nm)
+		}
+		for _, fem := range forwardEdgeMutations {
+			allMutations = append(allMutations, fem)
+		}
+		toMarshal = allMutations
+	}
+
+	setJSON, err := json.Marshal(toMarshal)
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal setJSON failed")
 	}
@@ -144,6 +188,369 @@ func (m *mutation) mutate() ([]string, error) {
 	}
 
 	return getCreatedUIDs(resp.Uids), nil
+}
+
+// filterManagedReverseEdges converts a struct to a map, excluding managed reverse edge fields
+func (m *mutation) filterManagedReverseEdges(data interface{}) (interface{}, error) {
+	v := reflect.ValueOf(data)
+	return m.filterValue(v)
+}
+
+func (m *mutation) filterValue(v reflect.Value) (interface{}, error) {
+	// Dereference pointers
+	for v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return nil, nil
+		}
+		v = v.Elem()
+	}
+
+	switch v.Kind() {
+	case reflect.Struct:
+		// Only convert dgraph node structs (those in typeCache) to maps
+		// Other structs like big.Float, time.Time should be preserved as-is
+		mutateType := m.typeCache[v.Type().String()]
+		if mutateType != nil && mutateType.uidIndex >= 0 {
+			return m.filterStruct(v)
+		}
+		// Not a dgraph node, return as-is
+		if v.CanInterface() {
+			return v.Interface(), nil
+		}
+		return nil, nil
+	case reflect.Slice:
+		return m.filterSlice(v)
+	default:
+		if v.CanInterface() {
+			return v.Interface(), nil
+		}
+		return nil, nil
+	}
+}
+
+func (m *mutation) filterStruct(v reflect.Value) (map[string]interface{}, error) {
+	result := make(map[string]interface{})
+	vType := v.Type()
+
+	mutateType := m.typeCache[vType.String()]
+
+	for i := 0; i < v.NumField(); i++ {
+		field := vType.Field(i)
+		fieldVal := v.Field(i)
+
+		if !fieldVal.CanInterface() {
+			continue
+		}
+
+		// Check if this is a managed reverse edge - skip adding to parent but
+		// the nested entities are still created (handled separately)
+		if mutateType != nil && i < len(mutateType.schema) {
+			schema := mutateType.schema[i]
+			if schema != nil && schema.ManagedReverse {
+				continue // Skip the ~predicate edge on parent
+			}
+		}
+
+		// Get JSON tag for field name
+		jsonTag := field.Tag.Get("json")
+		if jsonTag == "" || jsonTag == "-" {
+			continue
+		}
+		parts := strings.Split(jsonTag, ",")
+		fieldName := parts[0]
+		if fieldName == "" {
+			continue
+		}
+
+		// Check omitempty
+		omitEmpty := len(parts) > 1 && (parts[1] == "omitempty" || parts[1] == "omitzero")
+		if omitEmpty && isNull(fieldVal.Interface()) {
+			continue
+		}
+
+		// Recursively filter nested structs/slices
+		filtered, err := m.filterValue(fieldVal)
+		if err != nil {
+			return nil, err
+		}
+		if filtered != nil {
+			result[fieldName] = filtered
+		}
+	}
+
+	return result, nil
+}
+
+func (m *mutation) filterSlice(v reflect.Value) ([]interface{}, error) {
+	if v.IsNil() {
+		return nil, nil
+	}
+
+	result := make([]interface{}, 0, v.Len())
+	for i := 0; i < v.Len(); i++ {
+		filtered, err := m.filterValue(v.Index(i))
+		if err != nil {
+			return nil, err
+		}
+		if filtered != nil {
+			result = append(result, filtered)
+		}
+	}
+
+	return result, nil
+}
+
+// collectNestedMutations extracts nested entities from managed reverse edge fields
+// These entities need to be created even though the ~predicate edge is not added to parent
+func (m *mutation) collectNestedMutations(data interface{}) ([]interface{}, error) {
+	v := reflect.ValueOf(data)
+	return m.collectNested(v)
+}
+
+func (m *mutation) collectNested(v reflect.Value) ([]interface{}, error) {
+	for v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return nil, nil
+		}
+		v = v.Elem()
+	}
+
+	switch v.Kind() {
+	case reflect.Struct:
+		return m.collectNestedFromStruct(v)
+	case reflect.Slice:
+		return m.collectNestedFromSlice(v)
+	default:
+		return nil, nil
+	}
+}
+
+func (m *mutation) collectNestedFromStruct(v reflect.Value) ([]interface{}, error) {
+	var result []interface{}
+	vType := v.Type()
+
+	mutateType := m.typeCache[vType.String()]
+
+	for i := 0; i < v.NumField(); i++ {
+		fieldVal := v.Field(i)
+
+		if !fieldVal.CanInterface() {
+			continue
+		}
+
+		// Check if this is a managed reverse edge - extract nested entities
+		if mutateType != nil && i < len(mutateType.schema) {
+			schema := mutateType.schema[i]
+			if schema != nil && schema.ManagedReverse {
+				// Extract nested entities from this field
+				nested, err := m.extractNestedEntities(fieldVal)
+				if err != nil {
+					return nil, err
+				}
+				result = append(result, nested...)
+			}
+		}
+
+		// Recursively collect from all nested structs/slices
+		nested, err := m.collectNested(fieldVal)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, nested...)
+	}
+
+	return result, nil
+}
+
+func (m *mutation) collectNestedFromSlice(v reflect.Value) ([]interface{}, error) {
+	if v.IsNil() {
+		return nil, nil
+	}
+
+	var result []interface{}
+	for i := 0; i < v.Len(); i++ {
+		nested, err := m.collectNested(v.Index(i))
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, nested...)
+	}
+
+	return result, nil
+}
+
+func (m *mutation) extractNestedEntities(field reflect.Value) ([]interface{}, error) {
+	var result []interface{}
+
+	for field.Kind() == reflect.Ptr || field.Kind() == reflect.Interface {
+		if field.IsNil() {
+			return nil, nil
+		}
+		field = field.Elem()
+	}
+
+	if field.Kind() == reflect.Slice {
+		for i := 0; i < field.Len(); i++ {
+			elem := field.Index(i)
+			filtered, err := m.filterValue(elem)
+			if err != nil {
+				return nil, err
+			}
+			if filtered != nil {
+				result = append(result, filtered)
+			}
+		}
+	} else if field.Kind() == reflect.Struct {
+		filtered, err := m.filterValue(field)
+		if err != nil {
+			return nil, err
+		}
+		if filtered != nil {
+			result = append(result, filtered)
+		}
+	}
+
+	return result, nil
+}
+
+// collectForwardEdgeMutations recursively collects forward edge mutations for managed reverse edges
+func (m *mutation) collectForwardEdgeMutations(data interface{}) ([]map[string]interface{}, error) {
+	v := reflect.ValueOf(data)
+	return m.collectForwardEdges(v)
+}
+
+func (m *mutation) collectForwardEdges(v reflect.Value) ([]map[string]interface{}, error) {
+	// Dereference pointers
+	for v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return nil, nil
+		}
+		v = v.Elem()
+	}
+
+	switch v.Kind() {
+	case reflect.Struct:
+		return m.collectForwardEdgesFromStruct(v)
+	case reflect.Slice:
+		return m.collectForwardEdgesFromSlice(v)
+	default:
+		return nil, nil
+	}
+}
+
+func (m *mutation) collectForwardEdgesFromStruct(v reflect.Value) ([]map[string]interface{}, error) {
+	var result []map[string]interface{}
+	vType := v.Type()
+
+	mutateType := m.typeCache[vType.String()]
+	if mutateType == nil {
+		return nil, nil
+	}
+
+	// Get parent UID
+	var parentUID string
+	if mutateType.uidIndex >= 0 {
+		parentUID = v.Field(mutateType.uidIndex).String()
+	}
+
+	for i := 0; i < v.NumField(); i++ {
+		fieldVal := v.Field(i)
+
+		if !fieldVal.CanInterface() {
+			continue
+		}
+
+		// Check if this is a managed reverse edge
+		if i < len(mutateType.schema) {
+			schema := mutateType.schema[i]
+			if schema != nil && schema.ManagedReverse && parentUID != "" {
+				// Create forward edge mutations for children
+				forwardEdges, err := m.createForwardEdgeMutations(fieldVal, parentUID, schema)
+				if err != nil {
+					return nil, err
+				}
+				result = append(result, forwardEdges...)
+			}
+		}
+
+		// Recursively collect from nested structs/slices
+		nested, err := m.collectForwardEdges(fieldVal)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, nested...)
+	}
+
+	return result, nil
+}
+
+func (m *mutation) collectForwardEdgesFromSlice(v reflect.Value) ([]map[string]interface{}, error) {
+	if v.IsNil() {
+		return nil, nil
+	}
+
+	var result []map[string]interface{}
+	for i := 0; i < v.Len(); i++ {
+		nested, err := m.collectForwardEdges(v.Index(i))
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, nested...)
+	}
+
+	return result, nil
+}
+
+func (m *mutation) createForwardEdgeMutations(field reflect.Value, parentUID string, schema *Schema) ([]map[string]interface{}, error) {
+	var result []map[string]interface{}
+
+	// Dereference
+	for field.Kind() == reflect.Ptr || field.Kind() == reflect.Interface {
+		if field.IsNil() {
+			return nil, nil
+		}
+		field = field.Elem()
+	}
+
+	if field.Kind() == reflect.Slice {
+		for i := 0; i < field.Len(); i++ {
+			childVal := getElemValue(field.Index(i))
+			if !childVal.IsValid() {
+				continue
+			}
+			childMutateType := m.typeCache[childVal.Type().String()]
+			if childMutateType == nil || childMutateType.uidIndex == -1 {
+				continue
+			}
+			childUID := childVal.Field(childMutateType.uidIndex).String()
+			if childUID == "" {
+				continue
+			}
+
+			forwardEdgeMutation := map[string]interface{}{
+				predicateUid:            childUID,
+				schema.ForwardPredicate: map[string]interface{}{"uid": parentUID},
+			}
+			result = append(result, forwardEdgeMutation)
+		}
+	} else if field.Kind() == reflect.Struct {
+		childMutateType := m.typeCache[field.Type().String()]
+		if childMutateType == nil || childMutateType.uidIndex == -1 {
+			return nil, nil
+		}
+		childUID := field.Field(childMutateType.uidIndex).String()
+		if childUID == "" {
+			return nil, nil
+		}
+
+		forwardEdgeMutation := map[string]interface{}{
+			predicateUid:            childUID,
+			schema.ForwardPredicate: map[string]interface{}{"uid": parentUID},
+		}
+		result = append(result, forwardEdgeMutation)
+	}
+
+	return result, nil
 }
 
 func (m *mutation) do() ([]string, error) {
@@ -277,6 +684,11 @@ func copyStructToMap(structVal reflect.Value, target map[string]interface{}) {
 }
 
 func (m *mutation) copyNodeValues(nodeValue map[string]interface{}, field reflect.Value, schema *Schema, schemaIndex int) {
+	// Skip managed reverse edges - they are handled separately in generateMutation
+	if schema.ManagedReverse {
+		return
+	}
+
 	switch schema.Type {
 	case "[uid]":
 		edgesPlaceholder := make([]map[string]interface{}, field.Len(), field.Cap())
@@ -399,16 +811,20 @@ func (m *mutation) generateMutation(v reflect.Value, level int) error {
 				idFunc = m.updateToUIDFunc(v, nodeValue, id, uidListIndex, mutateType.uidIndex)
 			}
 
-			query, err := m.generateQuery(id, mutateType, uidListIndex, schema, value, level)
-			if err != nil {
-				return errors.Wrapf(err, "generate query on %s field failed", schema.Predicate)
-			}
-
-			queries = append(queries, query)
-
+			// Only generate query if the condition will be used
+			// Otherwise Dgraph complains about unused variables
 			isAddCondition := m.opcode != mutationUpsert || !isUIDFuncField
-			if isAddCondition {
-				conditions = append(conditions, fmt.Sprintf("eq(len(%s), 0)", uidListIndex))
+			if isAddCondition || (isNotUpdate && isUIDFuncField) {
+				query, err := m.generateQuery(id, mutateType, uidListIndex, schema, value, level)
+				if err != nil {
+					return errors.Wrapf(err, "generate query on %s field failed", schema.Predicate)
+				}
+
+				queries = append(queries, query)
+
+				if isAddCondition {
+					conditions = append(conditions, fmt.Sprintf("eq(len(%s), 0)", uidListIndex))
+				}
 			}
 		}
 	}
@@ -423,6 +839,73 @@ func (m *mutation) generateMutation(v reflect.Value, level int) error {
 		value:      nodeValue,
 	}}, m.mutations...)
 	m.queries = append(m.queries, queries...)
+
+	// Handle managed reverse edges: create forward edges on children pointing to this parent
+	parentUID := nodeValue[predicateUid]
+	if parentUID != nil {
+		for schemaIndex, schema := range mutateType.schema {
+			if !schema.ManagedReverse {
+				continue
+			}
+
+			field := v.Field(schemaIndex)
+			if !field.CanInterface() || isNull(field.Interface()) {
+				continue
+			}
+
+			// Handle slice of edges ([uid])
+			if schema.Type == "[uid]" {
+				for i := 0; i < field.Len(); i++ {
+					childVal := getElemValue(field.Index(i))
+					if !childVal.IsValid() {
+						continue
+					}
+					childMutateType := m.typeCache[childVal.Type().String()]
+					if childMutateType == nil || childMutateType.uidIndex == -1 {
+						continue
+					}
+					childUID := childVal.Field(childMutateType.uidIndex).String()
+					if childUID == "" {
+						continue
+					}
+
+					// Create mutation to set forward edge on child pointing to parent
+					// The forward edge must be a uid reference (map with "uid" key), not a raw string
+					forwardEdgeMutation := map[string]interface{}{
+						predicateUid:            childUID,
+						schema.ForwardPredicate: map[string]interface{}{"uid": parentUID},
+					}
+					m.mutations = append(m.mutations, preparedMutation{
+						conditions: conditions,
+						value:      forwardEdgeMutation,
+					})
+				}
+			} else if schema.Type == "uid" {
+				// Handle single edge
+				childVal := getElemValue(field)
+				if !childVal.IsValid() {
+					continue
+				}
+				childMutateType := m.typeCache[childVal.Type().String()]
+				if childMutateType == nil || childMutateType.uidIndex == -1 {
+					continue
+				}
+				childUID := childVal.Field(childMutateType.uidIndex).String()
+				if childUID == "" {
+					continue
+				}
+
+				forwardEdgeMutation := map[string]interface{}{
+					predicateUid:            childUID,
+					schema.ForwardPredicate: map[string]interface{}{"uid": parentUID},
+				}
+				m.mutations = append(m.mutations, preparedMutation{
+					conditions: conditions,
+					value:      forwardEdgeMutation,
+				})
+			}
+		}
+	}
 
 	return nil
 }
@@ -590,13 +1073,16 @@ func (h generateSchemaHook) StructField(p reflect.Value, field reflect.StructFie
 	if !ok {
 		mutateType = newMutateType(p.NumField())
 	}
-	// schema typing is completed before on type
-	skipTyping := p.NumField() > 0 && len(mutateType.schema) == p.NumField()
+
+	i := field.Index[len(field.Index)-1]
+
+	// Skip typing if this specific field's schema is already set
+	// This handles self-referential types where nested structs of the same type
+	// might be processed before the parent finishes
+	skipTyping := i < len(mutateType.schema) && mutateType.schema[i] != nil
 	if h.skipTyping {
 		skipTyping = true
 	}
-
-	i := field.Index[len(field.Index)-1]
 	fieldName := fmt.Sprintf("%s.%s", pType.Name(), field.Name)
 
 	predicate, _ := getPredicate(&field)
@@ -634,7 +1120,13 @@ func (h generateSchemaHook) StructField(p reflect.Value, field reflect.StructFie
 		if err != nil {
 			return errors.Wrapf(err, "parse dgraph tag failed on %s", fieldName)
 		}
-		mutateType.schema = append(mutateType.schema, schema)
+		// Use field index to insert schema at correct position
+		// This prevents corruption when self-referential types are processed
+		// (e.g., nested Person inside Person.Friends)
+		for len(mutateType.schema) <= i {
+			mutateType.schema = append(mutateType.schema, nil)
+		}
+		mutateType.schema[i] = schema
 		if schema.Unique {
 			if h.mutation.upsertFields.Has(predicate) {
 				mutateType.uidFuncPred = predicate
