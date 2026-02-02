@@ -637,8 +637,14 @@ func (m *mutation) addToRefMap(edge map[string]interface{}) {
 }
 
 func (m *mutation) addToParentMap(parent, edge map[string]interface{}) {
-	parentUID := parent[predicateUid].(string)
-	edgeUID := edge[predicateUid].(string)
+	parentUID, ok := parent[predicateUid].(string)
+	if !ok || parentUID == "" {
+		return // Parent UID not set yet, skip
+	}
+	edgeUID, ok := edge[predicateUid].(string)
+	if !ok {
+		return
+	}
 	if isUIDAlias(edgeUID) {
 		id := edgeUID[2:]
 		m.parentUids[id] = parentUID
