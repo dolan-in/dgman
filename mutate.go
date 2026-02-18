@@ -251,19 +251,31 @@ func (m *mutation) filterStruct(v reflect.Value) (map[string]interface{}, error)
 			}
 		}
 
-		// Get JSON tag for field name
-		jsonTag := field.Tag.Get("json")
-		if jsonTag == "" || jsonTag == "-" {
-			continue
+		// Determine field name and omitEmpty from schema (preferred) or json tag (fallback)
+		var fieldName string
+		var omitEmpty bool
+
+		if mutateType != nil && i < len(mutateType.schema) && mutateType.schema[i] != nil {
+			// Use schema predicate name (honors dgraph:"predicate=X")
+			schema := mutateType.schema[i]
+			fieldName = schema.Predicate
+			omitEmpty = schema.OmitEmpty
+		} else {
+			// Fallback for non-dgraph structs: use json tag
+			jsonTag := field.Tag.Get("json")
+			if jsonTag == "" || jsonTag == "-" {
+				continue
+			}
+			parts := strings.Split(jsonTag, ",")
+			fieldName = parts[0]
+			omitEmpty = len(parts) > 1 && (parts[1] == "omitempty" || parts[1] == "omitzero")
 		}
-		parts := strings.Split(jsonTag, ",")
-		fieldName := parts[0]
+
 		if fieldName == "" {
 			continue
 		}
 
 		// Check omitempty
-		omitEmpty := len(parts) > 1 && (parts[1] == "omitempty" || parts[1] == "omitzero")
 		if omitEmpty && isNull(fieldVal.Interface()) {
 			continue
 		}

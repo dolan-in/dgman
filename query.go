@@ -30,6 +30,202 @@ import (
 	"github.com/pkg/errors"
 )
 
+// buildPredicateToJSONMap builds a mapping from dgraph predicate names to json tag names
+// for struct fields where predicate= differs from the json tag.
+// It works recursively for nested edge structs.
+func buildPredicateToJSONMap(t reflect.Type) map[string]string {
+	t = getElemType(t)
+	if t.Kind() != reflect.Struct {
+		return nil
+	}
+
+	result := make(map[string]string)
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+
+		// Get json tag name
+		jsonTag := field.Tag.Get("json")
+		if jsonTag == "" || jsonTag == "-" {
+			continue
+		}
+		jsonName := strings.Split(jsonTag, ",")[0]
+		if jsonName == "" {
+			continue
+		}
+
+		// Get predicate name from dgraph tag
+		schema, err := parseDgraphTag(&field)
+		if err != nil || schema == nil {
+			continue
+		}
+
+		predName := schema.Predicate
+		if predName == "" || predName == jsonName {
+			continue
+		}
+
+		// Skip special predicates
+		if predName == "uid" || predName == "dgraph.type" {
+			continue
+		}
+
+		result[predName] = jsonName
+	}
+
+	return result
+}
+
+// remapPredicateKeys takes JSON data from Dgraph (keyed by predicate names) and
+// remaps keys to json tag names so that json.Unmarshal can find the struct fields.
+// It processes the data recursively for nested objects/arrays.
+func remapPredicateKeys(data []byte, dstType reflect.Type) ([]byte, error) {
+	if len(data) == 0 {
+		return data, nil
+	}
+
+	dstType = getElemType(dstType)
+	if dstType.Kind() != reflect.Struct {
+		return data, nil
+	}
+
+	predMap := buildPredicateToJSONMap(dstType)
+	if len(predMap) == 0 {
+		// No predicate remapping needed, but still check nested structs
+		return remapNestedOnly(data, dstType)
+	}
+
+	// Determine if this is an array or object
+	trimmed := strings.TrimSpace(string(data))
+	if len(trimmed) == 0 {
+		return data, nil
+	}
+
+	if trimmed[0] == '[' {
+		return remapArray(data, dstType)
+	} else if trimmed[0] == '{' {
+		return remapObject(data, dstType)
+	}
+
+	return data, nil
+}
+
+func remapObject(data []byte, dstType reflect.Type) ([]byte, error) {
+	dstType = getElemType(dstType)
+	predMap := buildPredicateToJSONMap(dstType)
+
+	// Build a map of json tag name -> field type for nested recursion
+	fieldTypeMap := buildFieldTypeMap(dstType)
+
+	var objMap map[string]stdjson.RawMessage
+	if err := json.Unmarshal(data, &objMap); err != nil {
+		return data, nil // If unmarshal fails, return original data
+	}
+
+	remapped := make(map[string]stdjson.RawMessage, len(objMap))
+	for key, val := range objMap {
+		newKey := key
+		if mappedKey, ok := predMap[key]; ok {
+			newKey = mappedKey
+		}
+
+		// Recursively remap nested structs/slices
+		if fieldType, ok := fieldTypeMap[newKey]; ok {
+			elemType := getElemType(fieldType)
+			if elemType.Kind() == reflect.Struct {
+				remappedVal, err := remapPredicateKeys([]byte(val), fieldType)
+				if err == nil {
+					val = stdjson.RawMessage(remappedVal)
+				}
+			}
+		}
+
+		remapped[newKey] = val
+	}
+
+	return json.Marshal(remapped)
+}
+
+func remapArray(data []byte, dstType reflect.Type) ([]byte, error) {
+	var arr []stdjson.RawMessage
+	if err := json.Unmarshal(data, &arr); err != nil {
+		return data, nil
+	}
+
+	elemType := dstType
+	if elemType.Kind() == reflect.Slice || elemType.Kind() == reflect.Array {
+		elemType = elemType.Elem()
+	}
+
+	for i, item := range arr {
+		remappedItem, err := remapPredicateKeys([]byte(item), elemType)
+		if err == nil {
+			arr[i] = stdjson.RawMessage(remappedItem)
+		}
+	}
+
+	return json.Marshal(arr)
+}
+
+// remapNestedOnly handles the case where the top-level struct doesn't need remapping
+// but nested structs might.
+func remapNestedOnly(data []byte, dstType reflect.Type) ([]byte, error) {
+	dstType = getElemType(dstType)
+
+	// Check if any nested structs need remapping
+	fieldTypeMap := buildFieldTypeMap(dstType)
+	hasNestedRemapping := false
+	for _, fieldType := range fieldTypeMap {
+		elemType := getElemType(fieldType)
+		if elemType.Kind() == reflect.Struct {
+			nestedMap := buildPredicateToJSONMap(elemType)
+			if len(nestedMap) > 0 {
+				hasNestedRemapping = true
+				break
+			}
+		}
+	}
+
+	if !hasNestedRemapping {
+		return data, nil
+	}
+
+	trimmed := strings.TrimSpace(string(data))
+	if len(trimmed) == 0 {
+		return data, nil
+	}
+
+	if trimmed[0] == '[' {
+		return remapArray(data, dstType)
+	} else if trimmed[0] == '{' {
+		return remapObject(data, dstType)
+	}
+
+	return data, nil
+}
+
+// buildFieldTypeMap creates a mapping from json tag name to field type for a struct.
+func buildFieldTypeMap(t reflect.Type) map[string]reflect.Type {
+	t = getElemType(t)
+	if t.Kind() != reflect.Struct {
+		return nil
+	}
+
+	result := make(map[string]reflect.Type)
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		jsonTag := field.Tag.Get("json")
+		if jsonTag == "" || jsonTag == "-" {
+			continue
+		}
+		jsonName := strings.Split(jsonTag, ",")[0]
+		if jsonName == "" {
+			continue
+		}
+		result[jsonName] = field.Type
+	}
+	return result
+}
+
 var (
 	ErrNodeNotFound = errors.New("node not found")
 )
@@ -111,6 +307,11 @@ func (q *QueryBlock) scanModel(result []byte) error {
 			modelSliceRef := reflect.MakeSlice(reflect.SliceOf(reflect.PtrTo(modelType)), 1, 1)
 			modelSlice := reflect.New(modelSliceRef.Type())
 			modelSlice.Elem().Set(modelSliceRef)
+			// Remap predicate keys before unmarshaling
+			remappedBlock, remapErr := remapPredicateKeys(blockResult, modelSliceRef.Type())
+			if remapErr == nil {
+				blockResult = stdjson.RawMessage(remappedBlock)
+			}
 			if err := json.Unmarshal(blockResult, modelSlice.Interface()); err != nil {
 				return errors.Wrapf(err, "queryMap %s unmarshal failed", block.name)
 			}
@@ -119,6 +320,11 @@ func (q *QueryBlock) scanModel(result []byte) error {
 				reflect.ValueOf(block.model).Elem().Set(modelSlice.Elem().Index(0).Elem())
 			}
 		case reflect.Slice:
+			// Remap predicate keys before unmarshaling
+			remappedBlock, remapErr := remapPredicateKeys(blockResult, modelType)
+			if remapErr == nil {
+				blockResult = stdjson.RawMessage(remappedBlock)
+			}
 			if err := json.Unmarshal(blockResult, block.model); err != nil {
 				return errors.Wrapf(err, "queryMap %s unmarshal failed", block.name)
 			}
@@ -511,6 +717,13 @@ func (q *Query) node(jsonData []byte, dst interface{}) error {
 		return ErrNodeNotFound
 	}
 
+	// Remap predicate keys to json tag names if needed
+	dstType := reflect.TypeOf(dst)
+	remapped, err := remapPredicateKeys(dataBytes, dstType)
+	if err == nil {
+		dataBytes = remapped
+	}
+
 	return json.Unmarshal(dataBytes, dst)
 }
 
@@ -538,6 +751,13 @@ func (q *Query) nodes(jsonData []byte, dst interface{}) error {
 	}
 
 	dataBytes := jsonData[dataPrefixLen : dataLen-1]
+
+	// Remap predicate keys to json tag names if needed
+	dstType := reflect.TypeOf(dst)
+	remapped, err := remapPredicateKeys(dataBytes, dstType)
+	if err == nil {
+		dataBytes = remapped
+	}
 
 	return json.Unmarshal(dataBytes, dst)
 }
@@ -593,7 +813,14 @@ func (q *Query) NodesAndCount(dst ...interface{}) (count int, err error) {
 		return 0, nil
 	}
 
-	if err := json.Unmarshal(pagedResult.Result, model); err != nil {
+	// Remap predicate keys before unmarshaling
+	resultBytes := []byte(pagedResult.Result)
+	remappedResult, remapErr := remapPredicateKeys(resultBytes, reflect.TypeOf(model))
+	if remapErr == nil {
+		resultBytes = remappedResult
+	}
+
+	if err := json.Unmarshal(resultBytes, model); err != nil {
 		return 0, err
 	}
 
