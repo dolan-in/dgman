@@ -1146,12 +1146,12 @@ func (h generateSchemaHook) StructField(p reflect.Value, field reflect.StructFie
 		}
 		mutateType.schema[i] = schema
 		if schema.Unique {
-			if h.mutation.upsertFields.Has(predicate) {
-				mutateType.uidFuncPred = predicate
+			if h.mutation.upsertFields.Has(schema.Predicate) {
+				mutateType.uidFuncPred = schema.Predicate
 			}
 
 			if mutateType.uidFuncPred == "" {
-				mutateType.uidFuncPred = predicate
+				mutateType.uidFuncPred = schema.Predicate
 			}
 		}
 		// cache the parsed type
