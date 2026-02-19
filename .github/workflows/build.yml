@@ -25,6 +25,16 @@ jobs:
     - name: Set up Dgraph
       run: |
         docker run -d --name dgraph-standalone -p 9080:9080 -p 8080:8080 dgraph/standalone:latest
+        echo "Waiting for Dgraph to be ready..."
+        for i in {1..30}; do
+          if curl -s http://localhost:8080/health > /dev/null; then
+            echo "Dgraph is ready!"
+            break
+          fi
+          echo "Attempt $i: Dgraph not ready, waiting..."
+          sleep 2
+        done
+        sleep 5
 
     - name: Run coverage
       run: go test -race -coverprofile=coverage.out -covermode=atomic -p 1 -parallel 1
