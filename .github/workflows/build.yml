@@ -1,4 +1,4 @@
-name: Build
+name: dgman-ci
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 
 jobs:
 
-  build:
+  ci:
     runs-on: ubuntu-latest
     env:
       DGMAN_TEST_DATABASE: localhost:9080
@@ -22,14 +22,9 @@ jobs:
       with:
         go-version-file: go.mod
     
-    # TODO: Convert to a matrix strategy to test multiple Dgraph versions
     - name: Set up Dgraph
       run: |
-        wget https://github.com/hypermodeinc/dgraph/releases/download/v24.1.2/dgraph-linux-amd64.tar.gz
-        tar -xvf dgraph-linux-amd64.tar.gz
-        chmod +x dgraph
-        ./dgraph zero &
-        ./dgraph alpha &
+        docker run -d --name dgraph-standalone -p 9080:9080 -p 8080:8080 dgraph/standalone:latest
 
     - name: Run coverage
       run: go test -race -coverprofile=coverage.out -covermode=atomic -p 1 -parallel 1
